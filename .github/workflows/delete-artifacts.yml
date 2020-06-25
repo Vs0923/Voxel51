@@ -1,0 +1,21 @@
+name: Delete old artifacts
+on: push
+
+jobs:
+  delete-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v2
+      - name: Set up Python 3
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.x
+      - name: Install dependencies
+        run: |
+          pip install requests
+      - name: Delete old artifacts
+        env:
+          TOKEN: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+        run: |
+          python .github/delete-artifacts.py
