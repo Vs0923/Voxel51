@@ -155,6 +155,10 @@ class Service(object):
             ServiceListenTimeout: if the timeout was exceeded
         """
 
+        if port == 0:
+            # normalize to wait for any port
+            port = None
+
         @retry(
             wait_fixed=250,
             stop_max_delay=timeout * 1000,

@@ -15,7 +15,11 @@ from fiftyone.constants import VERSION
 import fiftyone.core.client as foc
 import fiftyone.core.service as fos
 from fiftyone.core.state import StateDescription
+import fiftyone.service.util as fosu
 
+
+_DEFAULT_PORT = 5151
+_RANDOM_PORT = 0
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +46,7 @@ class ConnectionError(requests.exceptions.RequestException):
 
 
 def launch_app(
-    dataset=None, view=None, port=5151, remote=False, connect=False
+    dataset=None, view=None, port=None, remote=False, connect=False
 ):
     """Launches the FiftyOne App.
 
@@ -54,7 +58,8 @@ def launch_app(
             load
         view (None): an optional :class:`fiftyone.core.view.DatasetView` to
             load
-        port (5151): the port number of the server
+        port (None): the port number of the server - if None, defaults to 5151
+            (if available) or a random port
         remote (False): whether this is a remote session
         connect (False): whether this session is connecting to a remote session
 
@@ -164,7 +169,8 @@ class Session(foc.HasClient):
             load
         view (None): an optional :class:`fiftyone.core.view.DatasetView` to
             load
-        port (5151): the port to use to connect the FiftyOne App
+        port (None): the port to use to connect the FiftyOne App - if None,
+            defaults to 5151 (if available) or a random port
         remote (False): whether this is a remote session. Remote sessions do
             not launch the FiftyOne App
         connect (False): whether this session is connecting to a remote
@@ -176,9 +182,9 @@ class Session(foc.HasClient):
     _HC_ATTR_TYPE = StateDescription
 
     def __init__(
-        self, dataset=None, view=None, port=5151, remote=False, connect=False
+        self, dataset=None, view=None, port=None, remote=False, connect=False
     ):
-        self._port = port
+        self._port = port = self._parse_port(port)
         self._remote_app = remote
         self._remote_server = connect
         # maintain a reference to prevent garbage collection
@@ -186,12 +192,11 @@ class Session(foc.HasClient):
         self._WAIT_INSTRUCTIONS = _WAIT_INSTRUCTIONS
         self._disable_wait_warning = False
 
-        global _server_services  # pylint: disable=global-statement
         if not self._remote_server:
-            if port not in _server_services:
-                _server_services[port] = fos.ServerService(port)
-            global _subscribed_sessions  # pylint: disable=global-statement
-            _subscribed_sessions[port].add(self)
+            if port != _RANDOM_PORT:
+                if port not in _server_services:
+                    _server_services[port] = fos.ServerService(port)
+                _subscribed_sessions[port].add(self)
         else:
             _check_server(port)
 
@@ -210,6 +215,16 @@ class Session(foc.HasClient):
                 _REMOTE_INSTRUCTIONS.strip().format(port=self.server_port)
             )
         self._start_time = self._get_time()
+
+    @staticmethod
+    def _parse_port(port):
+        if port is None:
+            if not fosu.is_listening_tcp_port(_DEFAULT_PORT):
+                return _DEFAULT_PORT
+            return _RANDOM_PORT
+        if fosu.is_listening_tcp_port(port):
+            raise RuntimeError("port %i already in use" % port)
+        return port
 
     def __del__(self):
         """Deletes the Session by removing it from the `_subscribed_sessions`

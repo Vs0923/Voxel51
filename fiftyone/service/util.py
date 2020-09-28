@@ -6,6 +6,8 @@ FiftyOne service utilities.
 |
 """
 
+import socket
+
 import psutil
 
 from fiftyone.service.ipc import send_request
@@ -100,6 +102,21 @@ def find_processes_by_args(args):
                             yield p
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
+
+
+def is_listening_tcp_port(port):
+    """Checks whether any process is listening to the specified TCP port.
+
+    Note that this is currently implementing by connecting to the specified
+    port, which may adversely affect some non-FiftyOne services.
+    """
+    if not isinstance(port, int):
+        raise TypeError("port must be an integer (got %r)" % type(port))
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        return sock.connect_ex(("localhost", port)) == 0
+    finally:
+        sock.close()
 
 
 def get_listening_tcp_ports(process):
