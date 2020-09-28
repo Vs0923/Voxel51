@@ -9,6 +9,9 @@ from collections import defaultdict
 import logging
 import time
 
+import requests
+
+from fiftyone.constants import VERSION
 import fiftyone.core.client as foc
 import fiftyone.core.service as fos
 from fiftyone.core.state import StateDescription
@@ -34,7 +37,13 @@ _server_services = {}
 _subscribed_sessions = defaultdict(set)
 
 
-def launch_app(dataset=None, view=None, port=5151, remote=False):
+class ConnectionError(requests.exceptions.RequestException):
+    pass
+
+
+def launch_app(
+    dataset=None, view=None, port=5151, remote=False, connect=False
+):
     """Launches the FiftyOne App.
 
     Only one app instance can be opened at a time. If this method is
@@ -47,6 +56,7 @@ def launch_app(dataset=None, view=None, port=5151, remote=False):
             load
         port (5151): the port number of the server
         remote (False): whether this is a remote session
+        connect (False): whether this session is connecting to a remote session
 
     Returns:
         a :class:`Session`
@@ -64,7 +74,9 @@ def launch_app(dataset=None, view=None, port=5151, remote=False):
     #
     close_app()
 
-    _session = Session(dataset=dataset, view=view, port=port, remote=remote)
+    _session = Session(
+        dataset=dataset, view=view, port=port, remote=remote, connect=connect
+    )
 
     return _session
 
@@ -86,6 +98,34 @@ def _update_state(func):
         return result
 
     return wrapper
+
+
+def _check_server(port):
+    try:
+        response = requests.get(
+            "http://127.0.0.1:%i/fiftyone" % port, timeout=2
+        )
+    except requests.Timeout:
+        raise ConnectionError(
+            "Connection to server on port %i timed out" % port
+        )
+    except requests.RequestException:
+        raise ConnectionError("Failed to connect to port %i" % port)
+
+    try:
+        server_version = response.json()["version"]
+    except Exception:
+        raise ConnectionError(
+            "Could not parse server response (port %i)" % port
+        )
+
+    logger.info("Connected to FiftyOne on local port %i" % port)
+    if server_version != VERSION:
+        logger.warn(
+            _VERSION_MISMATCH_WARNING.format(
+                client_version=VERSION, server_version=server_version
+            )
+        )
 
 
 class Session(foc.HasClient):
@@ -127,26 +167,33 @@ class Session(foc.HasClient):
         port (5151): the port to use to connect the FiftyOne App
         remote (False): whether this is a remote session. Remote sessions do
             not launch the FiftyOne App
+        connect (False): whether this session is connecting to a remote
+            session. If true, the server will not be launched
     """
 
     _HC_NAMESPACE = "state"
     _HC_ATTR_NAME = "state"
     _HC_ATTR_TYPE = StateDescription
 
-    def __init__(self, dataset=None, view=None, port=5151, remote=False):
+    def __init__(
+        self, dataset=None, view=None, port=5151, remote=False, connect=False
+    ):
         self._port = port
-        self._remote = remote
+        self._remote_app = remote
+        self._remote_server = connect
         # maintain a reference to prevent garbage collection
         self._get_time = time.perf_counter
         self._WAIT_INSTRUCTIONS = _WAIT_INSTRUCTIONS
         self._disable_wait_warning = False
 
         global _server_services  # pylint: disable=global-statement
-        if port not in _server_services:
-            _server_services[port] = fos.ServerService(port)
-
-        global _subscribed_sessions  # pylint: disable=global-statement
-        _subscribed_sessions[port].add(self)
+        if not self._remote_server:
+            if port not in _server_services:
+                _server_services[port] = fos.ServerService(port)
+            global _subscribed_sessions  # pylint: disable=global-statement
+            _subscribed_sessions[port].add(self)
+        else:
+            _check_server(port)
 
         super().__init__(self._port)
 
@@ -155,7 +202,7 @@ class Session(foc.HasClient):
         elif dataset is not None:
             self.dataset = dataset
 
-        if not self._remote:
+        if not self._remote_app:
             self._app_service = fos.AppService(server_port=port)
             logger.info("App launched")
         else:
@@ -261,7 +308,7 @@ class Session(foc.HasClient):
 
         This opens the FiftyOne App, if necessary.
         """
-        if self._remote:
+        if self._remote_app:
             raise ValueError("Remote sessions cannot launch the FiftyOne App")
 
         self._app_service.start()
@@ -271,7 +318,7 @@ class Session(foc.HasClient):
 
         This terminates the FiftyOne App, if necessary.
         """
-        if self._remote:
+        if self._remote_app:
             return
 
         self.state.close = True
@@ -285,7 +332,7 @@ class Session(foc.HasClient):
         typically requires interrupting the calling process with Ctrl-C.
         """
         try:
-            if self._remote:
+            if self._remote_app:
                 _server_services[self._port].wait()
             else:
                 self._app_service.wait()
@@ -319,4 +366,10 @@ _WAIT_INSTRUCTIONS = """
 A session appears to have terminated shortly after it was started. If you
 intended to start an app instance or a remote session from a script, you
 should call `session.wait()` to keep the session (and the script) alive.
+"""
+
+_VERSION_MISMATCH_WARNING = """
+Warning: You are running FiftyOne {client_version} but have connected to a
+server running FiftyOne {server_version}. If you encounter issues, please
+upgrade your FiftyOne installations so that both versions match and try again.
 """

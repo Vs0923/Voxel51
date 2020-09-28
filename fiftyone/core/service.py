@@ -14,7 +14,6 @@ import sys
 
 from packaging.version import Version
 import psutil
-import requests
 from retrying import retry
 
 import eta.core.utils as etau
@@ -362,32 +361,8 @@ class ServerService(Service):
         super().__init__()
 
     def start(self):
-        server_version = None
-        try:
-            server_version = requests.get(
-                "http://127.0.0.1:%i/fiftyone" % self._port, timeout=2
-            ).json()["version"]
-        except Exception:
-            pass
-
-        if server_version is None:
-            # There is likely not a fiftyone server running (remote or local),
-            # so start a local server. If there actually is a fiftyone server
-            # running that didn't respond to /fiftyone, the local server will
-            # fail to start but the app will still connect successfully.
-            super().start()
-            self._wait_for_child_port(self._port)
-        else:
-            logger.info("Connected to fiftyone on local port %i" % self._port)
-            logger.info(
-                "If you are not connecting to a remote session, you may need\n"
-                "to start a new session and specify a port.\n"
-            )
-            if server_version != foc.VERSION:
-                logger.warn(
-                    "Server version (%s) does not match client version (%s)"
-                    % (server_version, foc.VERSION)
-                )
+        super().start()
+        self._wait_for_child_port(self._port)
 
     @property
     def command(self):
