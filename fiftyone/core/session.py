@@ -207,8 +207,7 @@ class Session(foc.HasClient):
             logger.info("App launched")
         else:
             logger.info(
-                _REMOTE_INSTRUCTIONS.strip()
-                % (self.server_port, self.server_port, self.server_port)
+                _REMOTE_INSTRUCTIONS.strip().format(port=self.server_port)
             )
         self._start_time = self._get_time()
 
@@ -348,15 +347,15 @@ class Session(foc.HasClient):
 
 
 _REMOTE_INSTRUCTIONS = """
-You have launched a remote app on port %d. To connect to this app
+You have launched a remote app on port {port}. To connect to this app
 from another machine, issue the following command:
 
-fiftyone app connect --destination [<username>@]<hostname> --port %d
+fiftyone app connect --destination [<username>@]<hostname> --port {port}
 
 where `[<username>@]<hostname>` refers to your current machine. Alternatively,
 you can manually configure port forwarding on another machine as follows:
 
-ssh -N -L 5151:127.0.0.1:%d [<username>@]<hostname>
+ssh -N -L 5151:127.0.0.1:{port} [<username>@]<hostname>
 
 and then connect to the app on that machine using either
 `fiftyone app connect` or from Python via `fiftyone.launch_app()`.
