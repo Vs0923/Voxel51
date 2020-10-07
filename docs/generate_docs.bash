@@ -45,6 +45,8 @@ if [[ ${STATIC_ONLY} = true ]]; then
     exit 0
 fi
 
+python -c "import os, fiftyone.brain as fob; print(os.path.dirname(fob.__file__))"
+
 FIFTYONE_BRAIN_DIR=$( \
     python -c "import os, fiftyone.brain as fob; print(os.path.dirname(fob.__file__))" || \
     (echo "fiftyone-brain not installed" >&2; exit 1)
