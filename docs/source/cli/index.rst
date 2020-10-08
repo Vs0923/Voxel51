@@ -87,7 +87,7 @@ Launch a FiftyOne quickstart.
 
 .. code-block:: text
 
-    fiftyone quickstart [-h]
+    fiftyone quickstart [-h] [-v]
 
 **Arguments**
 
@@ -95,6 +95,7 @@ Launch a FiftyOne quickstart.
 
     optional arguments:
       -h, --help    show this help message and exit
+      -v, --video  launch the quickstart with a video dataset
 
 **Examples**
 
@@ -102,6 +103,11 @@ Launch a FiftyOne quickstart.
 
     # Launch the quickstart
     fiftyone quickstart
+
+.. code-block:: shell
+
+    # Launch the quickstart with a video dataset
+    fiftyone quickstart --video
 
 .. _cli-fiftyone-config:
 
@@ -570,24 +576,38 @@ Delete FiftyOne datasets.
 
 .. code-block:: text
 
-    fiftyone datasets delete [-h] NAME
+    fiftyone datasets delete [-h] [-g GLOB_PATT] [--non-persistent]
+                             [NAME [NAME ...]]
 
 **Arguments**
 
 .. code-block:: text
 
     positional arguments:
-      NAME        the name of the dataset
+      NAME                  the dataset name(s) to delete
 
     optional arguments:
-      -h, --help  show this help message and exit
+      -h, --help            show this help message and exit
+      -g GLOB_PATT, --glob-patt GLOB_PATT
+                            a glob pattern of datasets to delete
+      --non-persistent      delete all non-persistent datasets
 
 **Examples**
 
 .. code-block:: shell
 
-    # Delete the dataset with the given name
-    fiftyone datasets delete <name>
+    # Delete the datasets with the given name(s)
+    fiftyone datasets delete <name1> <name2> ...
+
+.. code-block:: shell
+
+    # Delete the datasets whose names match the given glob pattern
+    fiftyone datasets delete --glob-patt <glob-patt>
+
+.. code-block:: shell
+
+    # Delete all non-persistent datasets
+    fiftyone datasets delete --non-persistent
 
 .. _cli-fiftyone-app:
 
@@ -660,7 +680,8 @@ View datasets in the FiftyOne App without persisting them to the database.
 
     fiftyone app view [-h] [-n NAME] [-d DATASET_DIR] [-t TYPE] [-z NAME]
                       [-s SPLITS [SPLITS ...]] [--images-dir IMAGES_DIR]
-                      [--images-patt IMAGES_PATT] [-j JSON_PATH]
+                      [--images-patt IMAGES_PATT] [--videos-dir VIDEOS_DIR]
+                      [--videos-patt VIDEOS_PATT] [-j JSON_PATH]
                       [--shuffle] [--seed SEED] [--max-samples MAX_SAMPLES]
                       [-p PORT] [-r]
 
@@ -712,6 +733,16 @@ View datasets in the FiftyOne App without persisting them to the database.
 
     # View a glob pattern of images in the app
     fiftyone app view --images-patt <images-patt>
+
+.. code-block:: shell
+
+    # View a directory of videos in the app
+    fiftyone app view --videos-dir <videos-dir>
+
+.. code-block:: shell
+
+    # View a glob pattern of videos in the app
+    fiftyone app view --videos-patt <videos-patt>
 
 .. code-block:: shell
 

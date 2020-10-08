@@ -1,12 +1,13 @@
 import React, { useContext, useState } from "react";
 import styled, { ThemeContext } from "styled-components";
 import { Checkbox, FormControlLabel } from "@material-ui/core";
-import { ArrowDropDown } from "@material-ui/icons";
+import { ArrowDropDown, ArrowDropUp } from "@material-ui/icons";
 import { useRecoilValue } from "recoil";
 import { animated, useSpring } from "react-spring";
 
 import * as atoms from "../recoil/atoms";
 import * as selectors from "../recoil/selectors";
+import { labelTypeIsFilterable } from "../utils/labels";
 
 import Filter from "./Filter";
 import NumericFieldFilter from "./NumericFieldFilter";
@@ -150,6 +151,7 @@ const Entry = ({ entry, onCheck, modal }) => {
   const atoms = modal ? MODAL_ATOMS : GLOBAL_ATOMS;
   const fieldIsFiltered = useRecoilValue(atoms.fieldIsFiltered(entry.name));
   const isNumericField = useRecoilValue(selectors.isNumericField(entry.name));
+  const mediaType = useRecoilValue(selectors.mediaType);
 
   const handleCheck = (entry) => {
     if (onCheck) {
@@ -165,6 +167,7 @@ const Entry = ({ entry, onCheck, modal }) => {
       ? theme.backgroundLight
       : theme.background,
   });
+  const ArrowType = expanded ? ArrowDropUp : ArrowDropDown;
 
   return (
     <CheckboxContainer key={entry.name} style={containerProps}>
@@ -182,15 +185,16 @@ const Entry = ({ entry, onCheck, modal }) => {
               entry.icon &&
               !["Detections", "Classifications"].includes(entry.type)
             ) &&
-              (entry.type || (isNumericField && !modal)) && (
-                <ArrowDropDown
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setExpanded(!expanded);
-                  }}
-                  style={{ marginRight: -4 }}
-                />
-              )}
+            ((entry.type && labelTypeIsFilterable(entry.type)) ||
+              (isNumericField && !modal)) ? (
+              <ArrowType
+                onClick={(e) => {
+                  e.preventDefault();
+                  setExpanded(!expanded);
+                }}
+                style={{ marginRight: -4 }}
+              />
+            ) : null}
           </>
         }
         classes={{
@@ -222,12 +226,12 @@ const Entry = ({ entry, onCheck, modal }) => {
           />
         }
       />
-      {isNumericField && (
+      {isNumericField ? (
         <NumericFieldFilter expanded={expanded} entry={entry} />
-      )}
-      {entry.type && (
+      ) : null}
+      {entry.type && labelTypeIsFilterable(entry.type) ? (
         <Filter expanded={expanded} entry={entry} {...atoms} modal={modal} />
-      )}
+      ) : null}
     </CheckboxContainer>
   );
 };

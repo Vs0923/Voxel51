@@ -14,15 +14,19 @@ import eta.core.datasets as etads
 import eta.core.image as etai
 import eta.core.serial as etas
 import eta.core.utils as etau
+import eta.core.video as etav
 
+import fiftyone.core.frame as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.metadata as fom
+import fiftyone.core.media as fomm
 import fiftyone.core.sample as fos
 
 from .parsers import (
     FiftyOneImageClassificationSampleParser,
     FiftyOneImageDetectionSampleParser,
     FiftyOneImageLabelsSampleParser,
+    FiftyOneVideoLabelsSampleParser,
     ImageClassificationSampleParser,
 )
 
@@ -50,7 +54,6 @@ def import_samples(
         dataset_importer: a :class:`DatasetImporter`
         label_field (None): the name of the field in which to store the
             imported labels. Only applicable if ``dataset_importer`` is a
-            required if ``dataset_exporter`` is a
             :class:`LabeledImageDatasetImporter`
         tags (None): an optional list of tags to attach to each sample
         expand_schema (True): whether to dynamically add new sample fields
@@ -66,8 +69,13 @@ def import_samples(
     # may need to be initialized
     with dataset_importer:
 
+        #
         # Construct function to parse samples
+        #
+
         if isinstance(dataset_importer, GenericSampleDatasetImporter):
+            # Generic sample dataset
+
             #
             # If the importer provides a sample field schema, apply it now
             #
@@ -89,6 +97,8 @@ def import_samples(
                 return sample
 
         elif isinstance(dataset_importer, UnlabeledImageDatasetImporter):
+            # Unlabeled image dataset
+
             # The schema never needs expanding when importing unlabeled samples
             expand_schema = False
 
@@ -98,7 +108,21 @@ def import_samples(
                     filepath=image_path, metadata=image_metadata, tags=tags,
                 )
 
+        elif isinstance(dataset_importer, UnlabeledVideoDatasetImporter):
+            # Unlabeled video dataset
+
+            # The schema never needs expanding when importing unlabeled samples
+            expand_schema = False
+
+            def parse_sample(sample):
+                video_path, video_metadata = sample
+                return fos.Sample(
+                    filepath=video_path, metadata=video_metadata, tags=tags,
+                )
+
         elif isinstance(dataset_importer, LabeledImageDatasetImporter):
+            # Labeled image dataset
+
             if label_field is None:
                 raise ValueError(
                     "A `label_field` must be provided when importing samples "
@@ -127,6 +151,20 @@ def import_samples(
                     sample.update_fields(label)
                 elif label is not None:
                     sample[label_field] = label
+
+                return sample
+
+        elif isinstance(dataset_importer, LabeledVideoDatasetImporter):
+            # Labeled video dataset
+
+            def parse_sample(sample):
+                video_path, video_metadata, frames = sample
+                sample = fos.Sample(
+                    filepath=video_path, metadata=video_metadata, tags=tags,
+                )
+
+                if frames is not None:
+                    sample.frames.update(frames)
 
                 return sample
 
@@ -402,6 +440,61 @@ class UnlabeledImageDatasetImporter(DatasetImporter):
         raise NotImplementedError("subclass must implement has_image_metadata")
 
 
+class UnlabeledVideoDatasetImporter(DatasetImporter):
+    """Interface for importing datasets of unlabeled video samples.
+
+    .. automethod:: __len__
+    .. automethod:: __next__
+
+    Example Usage::
+
+        import fiftyone as fo
+
+        dataset = fo.Dataset(...)
+
+        importer = UnlabeledVideoDatasetImporter(dataset_dir, ...)
+        with importer:
+            for video_path, video_metadata in importer:
+                dataset.add_sample(
+                    fo.Sample(filepath=video_path, metadata=video_metadata)
+                )
+
+            if importer.has_dataset_info:
+                dataset.info.update(importer.get_dataset_info())
+
+    Args:
+        dataset_dir: the dataset directory
+        shuffle (False): whether to randomly shuffle the order in which the
+            samples are imported
+        seed (None): a random seed to use when shuffling
+        max_samples (None): a maximum number of samples to import. By default,
+            all samples are imported
+    """
+
+    def __next__(self):
+        """Returns information about the next sample in the dataset.
+
+        Returns:
+            an ``(video_path, video_metadata)`` tuple, where
+
+            -   ``video_path``: the path to the video on disk
+            -   ``video_metadata``: an
+                :class:`fiftyone.core.metadata.VideoMetadata` instances for the
+                video, or ``None`` if :meth:`has_video_metadata` is ``False``
+
+        Raises:
+            StopIteration: if there are no more samples to import
+        """
+        raise NotImplementedError("subclass must implement __next__()")
+
+    @property
+    def has_video_metadata(self):
+        """Whether this importer produces
+        :class:`fiftyone.core.metadata.VideoMetadata` instances for each video.
+        """
+        raise NotImplementedError("subclass must implement has_video_metadata")
+
+
 class LabeledImageDatasetImporter(DatasetImporter):
     """Interface for importing datasets of labeled image samples.
 
@@ -490,6 +583,85 @@ class LabeledImageDatasetImporter(DatasetImporter):
         raise NotImplementedError("subclass must implement label_cls")
 
 
+class LabeledVideoDatasetImporter(DatasetImporter):
+    """Interface for importing datasets of labeled video samples.
+
+    .. automethod:: __len__
+    .. automethod:: __next__
+
+    Example Usage::
+
+        import fiftyone as fo
+
+        dataset = fo.Dataset(...)
+
+        importer = LabeledVideoDatasetImporter(dataset_dir, ...)
+        with importer:
+            for video_path, video_metadata, frames in importer:
+                sample = fo.Sample(
+                    filepath=video_path, metadata=video_metadata
+                )
+
+                if frames is not None:
+                    sample.frames.update(frames)
+
+                dataset.add_sample(sample)
+
+            if importer.has_dataset_info:
+                dataset.info.update(importer.get_dataset_info())
+
+    Args:
+        dataset_dir: the dataset directory
+        skip_unlabeled (False): whether to skip unlabeled videos when importing
+        shuffle (False): whether to randomly shuffle the order in which the
+            samples are imported
+        seed (None): a random seed to use when shuffling
+        max_samples (None): a maximum number of samples to import. By default,
+            all samples are imported
+    """
+
+    def __init__(
+        self,
+        dataset_dir,
+        skip_unlabeled=False,
+        shuffle=False,
+        seed=None,
+        max_samples=None,
+    ):
+        super().__init__(dataset_dir)
+        self.skip_unlabeled = skip_unlabeled
+        self.shuffle = shuffle
+        self.seed = seed
+        self.max_samples = max_samples
+
+    def __next__(self):
+        """Returns information about the next sample in the dataset.
+
+        Returns:
+            an  ``(video_path, video_metadata, frames)`` tuple, where
+
+            -   ``video_path``: the path to the video on disk
+            -   ``video_metadata``: an
+                :class:`fiftyone.core.metadata.VideoMetadata` instances for the
+                video, or ``None`` if :meth:`has_video_metadata` is ``False``
+            -   ``frames``: a dictionary mapping frame numbers to
+                :class:`fiftyone.core.frame.Frame` instances containing the
+                labels for each video frame, or ``None`` if the sample is
+                unlabeled
+
+        Raises:
+            StopIteration: if there are no more samples to import
+        """
+        raise NotImplementedError("subclass must implement __next__()")
+
+    @property
+    def has_video_metadata(self):
+        """Whether this importer produces
+        :class:`fiftyone.core.metadata.VideoMetadata` instances for each video.
+        """
+        raise NotImplementedError("subclass must implement has_video_metadata")
+
+
 class FiftyOneDatasetImporter(GenericSampleDatasetImporter):
     """Importer for FiftyOne datasets stored on disk in serialized format.
 
@@ -513,9 +685,11 @@ class FiftyOneDatasetImporter(GenericSampleDatasetImporter):
             dataset_dir, shuffle=shuffle, seed=seed, max_samples=max_samples
         )
         self._metadata = None
+        self._frame_labels_dir = None
         self._samples = None
         self._iter_samples = None
         self._num_samples = None
+        self._is_video_dataset = False
 
     def __iter__(self):
         self._iter_samples = iter(self._samples)
@@ -538,10 +712,24 @@ class FiftyOneDatasetImporter(GenericSampleDatasetImporter):
         # Convert filepath to absolute path
         d["filepath"] = os.path.join(self.dataset_dir, d["filepath"])
 
-        return fos.Sample.from_dict(d)
+        if self._is_video_dataset:
+            labels_relpath = d.pop("frames")
+            labels_path = os.path.join(self.dataset_dir, labels_relpath)
+
+            sample = fos.Sample.from_dict(d)
+            sample._frames = fof.Frames()  # @todo clean up this hack
+
+            self._import_frame_labels(sample, labels_path)
+        else:
+            sample = fos.Sample.from_dict(d)
+
+        return sample
 
     @property
     def has_sample_field_schema(self):
+        if self._is_video_dataset:
+            return False
+
         return "sample_fields" in self._metadata
 
     @property
@@ -551,13 +739,18 @@ class FiftyOneDatasetImporter(GenericSampleDatasetImporter):
     def setup(self):
         metadata_path = os.path.join(self.dataset_dir, "metadata.json")
         if os.path.isfile(metadata_path):
-            self._metadata = etas.load_json(metadata_path)
+            metadata = etas.load_json(metadata_path)
+            media_type = metadata.get("media_type", fomm.IMAGE)
+            self._metadata = metadata
+            self._is_video_dataset = media_type == fomm.VIDEO
         else:
             self._metadata = {}
 
-        samples_path = os.path.join(self.dataset_dir, "samples.json")
+        self._frame_labels_dir = os.path.join(self.dataset_dir, "frames")
 
+        samples_path = os.path.join(self.dataset_dir, "samples.json")
         samples = etas.load_json(samples_path).get("samples", [])
+
         self._samples = self._preprocess_list(samples)
         self._num_samples = len(self._samples)
 
@@ -583,6 +776,11 @@ class FiftyOneDatasetImporter(GenericSampleDatasetImporter):
             return 0
 
         return len(etau.list_files(data_dir))
+
+    def _import_frame_labels(self, sample, labels_path):
+        frames_map = etas.load_json(labels_path).get("frames", {})
+        for key, value in frames_map.items():
+            sample.frames[int(key)] = fof.Frame.from_dict(value)
 
 
 class ImageDirectoryImporter(UnlabeledImageDatasetImporter):
@@ -652,6 +850,78 @@ class ImageDirectoryImporter(UnlabeledImageDatasetImporter):
             self.dataset_dir, abs_paths=True, recursive=self.recursive
         )
         filepaths = [p for p in filepaths if etai.is_image_mime_type(p)]
+
+        self._filepaths = self._preprocess_list(filepaths)
+        self._num_samples = len(self._filepaths)
+
+
+class VideoDirectoryImporter(UnlabeledVideoDatasetImporter):
+    """Importer for a directory of videos stored on disk.
+
+    See :class:`fiftyone.types.dataset_types.VideoDirectory` for format
+    details.
+
+    Args:
+        dataset_dir: the dataset directory
+        recursive (True): whether to recursively traverse subdirectories
+        compute_metadata (False): whether to produce
+            :class:`fiftyone.core.metadata.VideoMetadata` instances for each
+            video when importing
+        shuffle (False): whether to randomly shuffle the order in which the
+            samples are imported
+        seed (None): a random seed to use when shuffling
+        max_samples (None): a maximum number of samples to import. By default,
+            all samples are imported
+    """
+
+    def __init__(
+        self,
+        dataset_dir,
+        recursive=True,
+        compute_metadata=False,
+        shuffle=False,
+        seed=None,
+        max_samples=None,
+    ):
+        super().__init__(
+            dataset_dir, shuffle=shuffle, seed=seed, max_samples=max_samples
+        )
+        self.recursive = recursive
+        self.compute_metadata = compute_metadata
+        self._filepaths = None
+        self._iter_filepaths = None
+        self._num_samples = None
+
+    def __iter__(self):
+        self._iter_filepaths = iter(self._filepaths)
+        return self
+
+    def __len__(self):
+        return self._num_samples
+
+    def __next__(self):
+        video_path = next(self._iter_filepaths)
+
+        if self.compute_metadata:
+            video_metadata = fom.VideoMetadata.build_for(video_path)
+        else:
+            video_metadata = None
+
+        return video_path, video_metadata
+
+    @property
+    def has_dataset_info(self):
+        return False
+
+    @property
+    def has_video_metadata(self):
+        return self.compute_metadata
+
+    def setup(self):
+        filepaths = etau.list_files(
+            self.dataset_dir, abs_paths=True, recursive=self.recursive
+        )
+        filepaths = [p for p in filepaths if etav.is_video_mime_type(p)]
 
         self._filepaths = self._preprocess_list(filepaths)
         self._num_samples = len(self._filepaths)
@@ -994,8 +1264,8 @@ class FiftyOneImageDetectionDatasetImporter(LabeledImageDatasetImporter):
 
 
 class FiftyOneImageLabelsDatasetImporter(LabeledImageDatasetImporter):
-    """Importer for image labels datasets stored on disk in FiftyOne's default
-    format.
+    """Importer for labeled image datasets whose labels are stored in
+    `ETA ImageLabels format <https://voxel51.com/docs/api/#types-imagelabels>`_.
 
     See :class:`fiftyone.types.dataset_types.FiftyOneImageLabelsDataset` for
     format details.
@@ -1128,3 +1398,141 @@ class FiftyOneImageLabelsDatasetImporter(LabeledImageDatasetImporter):
 
     def get_dataset_info(self):
         return {"description": self._description}
+
+
+class FiftyOneVideoLabelsDatasetImporter(LabeledVideoDatasetImporter):
+    """Importer for labeled video datasets whose labels are stored in
+    `ETA VideoLabels format <https://voxel51.com/docs/api/#types-videolabels>`_.
+
+    See :class:`fiftyone.types.dataset_types.FiftyOneVideoLabelsDataset` for
+    format details.
+
+    Args:
+        dataset_dir: the dataset directory
+        compute_metadata (False): whether to produce
+            :class:`fiftyone.core.metadata.VideoMetadata` instances for each
+            video when importing
+        expand (True): whether to expand the labels for each frame into
+            separate :class:`fiftyone.core.labels.Label` instances
+        prefix (None): a string prefix to prepend to each label name in the
+            expanded frame label dictionaries. Only applicable when ``expand``
+            is True
+        labels_dict (None): a dictionary mapping names of attributes/objects
+            in the frame labels to field names into which to expand them. Only
+            applicable when ``expand`` is True
+        multilabel (False): whether to store frame attributes in a single
+            :class:`fiftyone.core.labels.Classifications` instance. Only
+            applicable when ``expand`` is True
+        skip_non_categorical (False): whether to skip non-categorical frame
+            attributes (True) or cast them to strings (False). Only applicable
+            when ``expand`` is True
+        skip_unlabeled (False): whether to skip unlabeled videos when importing
+        shuffle (False): whether to randomly shuffle the order in which the
+            samples are imported
+        seed (None): a random seed to use when shuffling
+        max_samples (None): a maximum number of samples to import. By default,
+            all samples are imported
+    """
+
+    def __init__(
+        self,
+        dataset_dir,
+        compute_metadata=False,
+        expand=True,
+        prefix=None,
+        labels_dict=None,
+        multilabel=False,
+        skip_non_categorical=False,
+        skip_unlabeled=False,
+        max_samples=None,
+        **kwargs
+    ):
+        for arg in kwargs:
+            logger.warning("Ignoring unsupported parameter '%s'", arg)
+
+        super().__init__(
+            dataset_dir, skip_unlabeled=skip_unlabeled, max_samples=max_samples
+        )
+        self.compute_metadata = compute_metadata
+        self.expand = expand
+        self.prefix = prefix
+        self.labels_dict = labels_dict
+        self.multilabel = multilabel
+        self.skip_non_categorical = skip_non_categorical
+        self._description = None
+        self._sample_parser = None
+        self._labeled_dataset = None
+        self._iter_labeled_dataset = None
+        self._num_samples = None
+        self._num_imported = None
+
+    def __iter__(self):
+        self._num_imported = 0
+        self._iter_labeled_dataset = zip(
+            self._labeled_dataset.iter_data_paths(),
+            self._labeled_dataset.iter_labels(),
+        )
+        return self
+
+    def __len__(self):
+        return self._num_samples
+
+    def __next__(self):
+        if (
+            self.max_samples is not None
+            and self._num_imported >= self.max_samples
+        ):
+            raise StopIteration
+
+        video_path, frames = self._parse_next_sample()
+
+        if self.skip_unlabeled:
+            while frames is None:
+                video_path, frames = self._parse_next_sample()
+
+        if self.compute_metadata:
+            video_metadata = fom.VideoMetadata.build_for(video_path)
+        else:
+            video_metadata = None
+
+        self._num_imported += 1
+        return video_path, video_metadata, frames
+
+    def _parse_next_sample(self):
+        sample = next(self._iter_labeled_dataset)
+
+        self._sample_parser.with_sample(sample)
+        video_path = self._sample_parser.get_video_path()
+        frames = self._sample_parser.get_frame_labels()
+
+        return video_path, frames
+
+    @property
+    def has_dataset_info(self):
+        return bool(self._description)
+
+    @property
+    def has_video_metadata(self):
+        return self.compute_metadata
+
+    def setup(self):
+        self._sample_parser = FiftyOneVideoLabelsSampleParser(
+            expand=self.expand,
+            prefix=self.prefix,
+            labels_dict=self.labels_dict,
+            multilabel=self.multilabel,
+            skip_non_categorical=self.skip_non_categorical,
+        )
+        self._labeled_dataset = etads.load_dataset(self.dataset_dir)
+        self._description = self._labeled_dataset.dataset_index.description
+
+        self._num_samples = len(self._labeled_dataset)
+        if self.max_samples is not None:
+            self._num_samples = min(self._num_samples, self.max_samples)
+
+    def get_dataset_info(self):
+        return {"description": self._description}
+
+    @staticmethod
+    def get_num_samples(dataset_dir):
+        return len(etads.load_dataset(dataset_dir))

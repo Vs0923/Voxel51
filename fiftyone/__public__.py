@@ -17,9 +17,13 @@ from .core.dataset import (
     dataset_exists,
     load_dataset,
     delete_dataset,
+    delete_datasets,
     delete_non_persistent_datasets,
 )
-from .core.expressions import ViewField, ViewExpression
+from .core.expressions import (
+    ViewField,
+    ViewExpression,
+)
 from .core.fields import (
     Field,
     BooleanField,
@@ -33,6 +37,7 @@ from .core.fields import (
     ArrayField,
     ImageLabelsField,
 )
+from .core.frame import Frame
 from .core.labels import (
     Label,
     ImageLabel,
@@ -40,16 +45,22 @@ from .core.labels import (
     BooleanAttribute,
     CategoricalAttribute,
     NumericAttribute,
-    VectorAttribute,
+    ListAttribute,
     Classification,
     Classifications,
     Detection,
     Detections,
+    Polyline,
+    Polylines,
+    Keypoint,
+    Keypoints,
+    Segmentation,
     ImageLabels,
 )
 from .core.metadata import (
     Metadata,
     ImageMetadata,
+    VideoMetadata,
 )
 from .core.sample import Sample
 from .core.session import (

@@ -3,6 +3,79 @@ FiftyOne Release Notes
 
 .. default-role:: code
 
+FiftyOne 0.6.1
+--------------
+*Released October 7, 2020*
+
+App
+^^^
+- Added support for visualizing keypoints, polylines, and segmentation masks
+- Added autocompletion when selecting `SortBy` fields in the view bar
+- Added support for viewing `index` fields of |Detection| labels in the media
+  viewer, if present
+- Fixed counting of |Classifications| fields in the expanded sample view
+- Fixed a bug that prevented label filters from fully resetting when a `reset`
+  or `clear` button is pressed
+
+Core
+^^^^
+- Added support for storing :class:`keypoints <fiftyone.core.labels.Keypoint>`,
+  :class:`polylines <fiftyone.core.labels.Polyline>`, and
+  :class:`segmentation masks <fiftyone.core.labels.Segmentation>` on samples
+- Added support for setting an `index` attribute on |Detection| instances that
+  defines a unique identifier for an object (e.g., across frames of a video)
+- Added support for :ref:`importing <YOLODataset-import>` and
+  :ref:`exporting <YOLODataset-export>` datasets in
+  `YOLO format <https://github.com/AlexeyAB/darknet>`_
+- Added support for :ref:`importing <CVATVideoDataset-import>` and
+  :ref:`exporting <CVATVideoDataset-export>` datasets in
+  `CVAT video format <https://github.com/openvinotoolkit/cvat/blob/develop/cvat/apps/documentation/xml_format.md>`_
+- Added support for :ref:`importing <FiftyOneDataset-import>` and
+  :ref:`exporting <FiftyOneDataset-export>` video datasets in
+  :class:`FiftyOneDataset <fiftyone.types.dataset_types.FiftyOneDataset>`
+  format
+- Added frame field schemas to string representations for video datasets/views
+
+CLI
+^^^
+- Added options to
+  :ref:`fiftyone datasets delete <cli-fiftyone-datasets-delete>` to delete all
+  datasets matching a pattern and all non-persistent datasets
+
+Documentation
+^^^^^^^^^^^^^
+- Added a recipe for :doc:`merging datasets </recipes/merge_datasets>`
+- Fixed some table widths and other display issues
+
+FiftyOne 0.6.0
+--------------
+*Released October 1, 2020*
+
+App
+^^^
+- Added support for visualizing video datasets in the App
+
+Core
+^^^^
+- Added support for :ref:`storing frame labels <video-frame-labels>` on
+  video samples
+- Added support for :ref:`importing <VideoDirectory-import>` and
+  :ref:`exporting <VideoDirectory-export>` datasets of unlabeled videos
+- Added support for :ref:`importing <FiftyOneVideoLabelsDataset-import>` and
+  :ref:`exporting <FiftyOneVideoLabelsDataset-export>` labeled video
+  datasets in
+  `ETA VideoLabels format <https://voxel51.com/docs/api/#types-videolabels>`_.
+- Added support for :ref:`importing <writing-a-custom-dataset-importer>` and
+  :ref:`exporting <writing-a-custom-dataset-exporter>` video datasets in
+  custom formats
+- Improved the performance of
+  :meth:`Dataset.rename_field() <fiftyone.core.dataset.Dataset.rename_field>`
+- Added support for using disk space when running aggregation pipelines on
+  large datasets
+- Added support for automatically creating database indexes when sorting by
+  sample fields, for efficiency
+- Fixed issues with serializing vector fields and numpy arrays
+
 FiftyOne 0.5.6
 --------------
 *Released September 23, 2020*

@@ -88,15 +88,23 @@ class QuickstartCommand(Command):
 
         # Launch the quickstart
         fiftyone quickstart
+
+        # Launch the quickstart with a video dataset
+        fiftyone quickstart --video
     """
 
     @staticmethod
     def setup(parser):
-        pass
+        parser.add_argument(
+            "-v",
+            "--video",
+            action="store_true",
+            help="launch the quickstart with a video dataset",
+        )
 
     @staticmethod
     def execute(parser, args):
-        fouq.quickstart(interactive=False)
+        fouq.quickstart(interactive=False, video=args.video)
 
 
 class ConfigCommand(Command):
@@ -678,20 +686,46 @@ class DatasetsDeleteCommand(Command):
 
     Examples::
 
-        # Delete the dataset with the given name
-        fiftyone datasets delete <name>
+        # Delete the datasets with the given name(s)
+        fiftyone datasets delete <name1> <name2> ...
+
+        # Delete the datasets whose names match the given glob pattern
+        fiftyone datasets delete --glob-patt <glob-patt>
+
+        # Delete all non-persistent datasets
+        fiftyone datasets delete --non-persistent
     """
 
     @staticmethod
     def setup(parser):
         parser.add_argument(
-            "name", metavar="NAME", help="the name of the dataset",
+            "name",
+            metavar="NAME",
+            nargs="*",
+            help="the dataset name(s) to delete",
+        )
+        parser.add_argument(
+            "-g",
+            "--glob-patt",
+            metavar="GLOB_PATT",
+            help="a glob pattern of datasets to delete",
+        )
+        parser.add_argument(
+            "--non-persistent",
+            action="store_true",
+            help="delete all non-persistent datasets",
         )
 
     @staticmethod
     def execute(parser, args):
-        fod.delete_dataset(args.name)
-        print("Dataset '%s' deleted" % args.name)
+        for name in args.name:
+            fod.delete_dataset(name, verbose=True)
+
+        if args.glob_patt:
+            fod.delete_datasets(args.glob_patt, verbose=True)
+
+        if args.non_persistent:
+            fod.delete_non_persistent_datasets(verbose=True)
 
 
 class AppCommand(Command):
@@ -779,6 +813,12 @@ class AppViewCommand(Command):
         # View a glob pattern of images in the app
         fiftyone app view --images-patt <images-patt>
 
+        # View a directory of videos in the app
+        fiftyone app view --videos-dir <videos-dir>
+
+        # View a glob pattern of videos in the app
+        fiftyone app view --videos-patt <videos-patt>
+
         # View a dataset stored in JSON format on disk in the app
         fiftyone app view --json-path <json-path>
 
@@ -828,6 +868,16 @@ class AppViewCommand(Command):
             "--images-patt",
             metavar="IMAGES_PATT",
             help="a glob pattern of images",
+        )
+        parser.add_argument(
+            "--videos-dir",
+            metavar="VIDEOS_DIR",
+            help="the path to a directory of videos",
+        )
+        parser.add_argument(
+            "--videos-patt",
+            metavar="VIDEOS_PATT",
+            help="a glob pattern of videos",
         )
         parser.add_argument(
             "-j",
@@ -905,6 +955,16 @@ class AppViewCommand(Command):
             name = args.name
             images_patt = args.images_patt
             dataset = fod.Dataset.from_images_patt(images_patt, name=name)
+        elif args.videos_dir:
+            # View a directory of images
+            name = args.name
+            videos_dir = args.videos_dir
+            dataset = fod.Dataset.from_videos_dir(videos_dir, name=name)
+        elif args.videos_patt:
+            # View a glob pattern of videos
+            name = args.name
+            videos_patt = args.videos_patt
+            dataset = fod.Dataset.from_videos_patt(videos_patt, name=name)
         elif args.json_path:
             # View a dataset from a JSON file
             name = args.name

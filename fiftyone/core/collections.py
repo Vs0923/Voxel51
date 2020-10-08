@@ -16,7 +16,11 @@ import eta.core.utils as etau
 
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
-from fiftyone.core.odm.sample import default_sample_fields
+import fiftyone.core.media as fom
+from fiftyone.core.odm.sample import (
+    DatasetSampleDocument,
+    default_sample_fields,
+)
 import fiftyone.core.stages as fos
 import fiftyone.core.utils as fou
 
@@ -88,6 +92,11 @@ class SampleCollection(object):
     def name(self):
         """The name of the collection."""
         raise NotImplementedError("Subclass must implement name")
+
+    @property
+    def media_type(self):
+        """The media type of the collection."""
+        raise NotImplementedError("Subclass must implement media_type")
 
     @property
     def info(self):
@@ -189,6 +198,32 @@ class SampleCollection(object):
         """
         raise NotImplementedError("Subclass must implement get_field_schema()")
 
+    def get_frames_field_schema(
+        self, ftype=None, embedded_doc_type=None, include_private=False
+    ):
+        """Returns a schema dictionary describing the fields of the frames of
+        the samples in the collection.
+
+        Only applicable for video collections.
+
+        Args:
+            ftype (None): an optional field type to which to restrict the
+                returned schema. Must be a subclass of
+                :class:`fiftyone.core.fields.Field`
+            embedded_doc_type (None): an optional embedded document type to
+                which to restrict the returned schema. Must be a subclass of
+                :class:`fiftyone.core.odm.BaseEmbeddedDocument`
+            include_private (False): whether to include fields that start with
+                `_` in the returned schema
+
+        Returns:
+            a dictionary mapping field names to field types, or ``None`` if
+            the collection is not a video collection
+        """
+        raise NotImplementedError(
+            "Subclass must implement get_frames_field_schema()"
+        )
+
     def make_unique_field_name(self, root=""):
         """Makes a unique field name with the given root name for the
         collection.
@@ -231,7 +266,9 @@ class SampleCollection(object):
 
         schema = self.get_field_schema()
         default_fields = set(
-            default_sample_fields(include_private=True, include_id=True)
+            default_sample_fields(
+                DatasetSampleDocument, include_private=True, include_id=True
+            )
         )
         for field in field_or_fields:
             # We only validate that the root field exists
@@ -976,7 +1013,13 @@ class SampleCollection(object):
         """
         return self._add_view_stage(fos.Take(size, seed=seed))
 
-    def draw_labels(self, anno_dir, label_fields=None, annotation_config=None):
+    def draw_labels(
+        self,
+        anno_dir,
+        label_fields=None,
+        overwrite=False,
+        annotation_config=None,
+    ):
         """Renders annotated versions of the samples in the collection with
         label field(s) overlaid to the given directory.
 
@@ -991,6 +1034,8 @@ class SampleCollection(object):
             label_fields (None): a list of :class:`fiftyone.core.labels.Label`
                 fields to render. By default, all
                 :class:`fiftyone.core.labels.Label` fields are drawn
+            overwrite (False): whether to delete ``anno_dir`` if it exists
+                before rendering the labels
             annotation_config (None): an
                 :class:`fiftyone.utils.annotations.AnnotationConfig` specifying
                 how to render the annotations
@@ -998,30 +1043,24 @@ class SampleCollection(object):
         Returns:
             the list of paths to the labeled images
         """
-        label_fields_schema = self.get_field_schema(
-            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
-        )
+        if os.path.isdir(anno_dir):
+            if overwrite:
+                etau.delete_dir(anno_dir)
+            else:
+                logger.warning(
+                    "Directory '%s' already exists; outputs will be merged "
+                    "with existing files",
+                    anno_dir,
+                )
 
         if label_fields is None:
-            label_fields = list(label_fields_schema.keys())
+            label_fields = _get_image_label_fields(self)
 
-        non_image_label_fields = [
-            lf
-            for lf in label_fields
-            if not issubclass(
-                label_fields_schema[lf].document_type, fol.ImageLabel
-            )
-        ]
-
-        if non_image_label_fields:
-            raise ValueError(
-                "Cannot draw label fields %s; only "
-                "`fiftyone.core.labels.ImageLabel` fields are supported"
-            )
-
-        # Draw labeled images
         return foua.draw_labeled_images(
-            self, label_fields, anno_dir, annotation_config=annotation_config,
+            self,
+            anno_dir,
+            label_fields=label_fields,
+            annotation_config=annotation_config,
         )
 
     def export(
@@ -1032,7 +1071,7 @@ class SampleCollection(object):
         label_field=None,
         label_prefix=None,
         labels_dict=None,
-        overwrite=True,
+        overwrite=False,
         **kwargs
     ):
         """Exports the samples in the collection to disk.
@@ -1067,7 +1106,7 @@ class SampleCollection(object):
                 to use when constructing the label dict to pass to the
                 exporter. This parameter can only be used when the exporter can
                 handle dictionaries of labels
-            overwrite (True): when an ``export_dir`` is provided, whether to
+            overwrite (False): when an ``export_dir`` is provided, whether to
                 delete the existing directory before performing the export
             **kwargs: optional keyword arguments to pass to
                 ``dataset_type.get_dataset_exporter_cls(export_dir, **kwargs)``
@@ -1131,6 +1170,15 @@ class SampleCollection(object):
             label_field_or_dict=label_field_or_dict,
         )
 
+    def create_index(self, field):
+        """Creates a database index on the given field, enabling efficient
+        sorting on that field.
+
+        Args:
+            field: the name of the field to index
+        """
+        raise NotImplementedError("Subclass must implement make_index()")
+
     def aggregate(self, pipeline=None):
         """Calls the collection's current MongoDB aggregation pipeline.
 
@@ -1158,6 +1206,11 @@ class SampleCollection(object):
         Returns:
             a JSON dict
         """
+        # @todo support serializing video datasets?
+        # That would be a lot of labels to store in one JSON......
+        if self.media_type == fom.VIDEO:
+            raise ValueError("Serializing video datasets is not supported")
+
         if rel_dir is not None:
             rel_dir = (
                 os.path.abspath(os.path.expanduser(rel_dir)) + os.path.sep
@@ -1250,11 +1303,13 @@ class SampleCollection(object):
         raise NotImplementedError("Subclass must implement _add_view_stage()")
 
     def _serialize_field_schema(self):
-        field_schema = self.get_field_schema()
-        return {
-            field_name: str(field)
-            for field_name, field in field_schema.items()
-        }
+        return self._serialize_schema(self.get_field_schema())
+
+    def _serialize_frames_field_schema(self):
+        return self._serialize_schema(self.get_frames_field_schema())
+
+    def _serialize_schema(self, schema):
+        return {field_name: str(field) for field_name, field in schema.items()}
 
 
 def _get_random_characters(n):
@@ -1263,10 +1318,23 @@ def _get_random_characters(n):
     )
 
 
-def _get_labels_dict_for_prefix(sample_collection, label_prefix):
+def _get_image_label_fields(sample_collection):
     label_fields = sample_collection.get_field_schema(
-        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.ImageLabel
     )
+    return list(label_fields.keys())
+
+
+def _get_labels_dict_for_prefix(sample_collection, label_prefix):
+    if sample_collection.media_type == fom.VIDEO:
+        label_fields = sample_collection.get_frames_field_schema(
+            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+        )
+    else:
+        label_fields = sample_collection.get_field_schema(
+            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+        )
+
     labels_dict = {}
     for field_name in label_fields:
         if field_name.startswith(label_prefix):
@@ -1276,6 +1344,10 @@ def _get_labels_dict_for_prefix(sample_collection, label_prefix):
 
 
 def _get_default_label_field_for_exporter(sample_collection, dataset_exporter):
+    #
+    # Labeled image datasets
+    #
+
     if isinstance(dataset_exporter, foud.LabeledImageDatasetExporter):
         label_cls = dataset_exporter.label_cls
         label_fields = sample_collection.get_field_schema(
@@ -1297,8 +1369,24 @@ def _get_default_label_field_for_exporter(sample_collection, dataset_exporter):
                 if issubclass(field_type.document_type, fol.Classification):
                     return field
 
-        raise ValueError(
-            "No compatible label field of type %s found" % label_cls
+        raise ValueError("No compatible field of type %s found" % label_cls)
+
+    #
+    # Video datasets
+    #
+
+    if sample_collection.media_type == fom.VIDEO:
+        label_fields = sample_collection.get_frames_field_schema(
+            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
         )
+
+        for field, field_type in label_fields.items():
+            return field  # Just return first field
+
+        raise ValueError("No compatible field of type %s found" % label_cls)
+
+    #
+    # Other
+    #
 
     return None

@@ -6,6 +6,7 @@ import {
   VALID_LIST_TYPES,
   VALID_NUMERIC_TYPES,
   makeLabelNameGroups,
+  labelTypeHasColor,
 } from "../utils/labels";
 
 export const datasetName = selector({
@@ -13,6 +14,24 @@ export const datasetName = selector({
   get: ({ get }) => {
     const stateDescription = get(atoms.stateDescription);
     return stateDescription.dataset ? stateDescription.dataset.name : null;
+  },
+});
+
+export const mediaType = selector({
+  key: "mediaType",
+  get: ({ get }) => {
+    const stateDescription = get(atoms.stateDescription);
+    return stateDescription.dataset
+      ? stateDescription.dataset.media_type
+      : null;
+  },
+});
+
+export const framesLabelsCount = selector({
+  key: "frameLabelsCount",
+  get: ({ get }) => {
+    const stateDescription = get(atoms.stateDescription);
+    return stateDescription.frame_labels ? stateDescription.frame_labels : null;
   },
 });
 
@@ -92,7 +111,11 @@ export const labelNames = selector({
     }
     return stateDescription.labels
       .map((label) => label.field)
-      .filter((name) => stats.custom_fields.hasOwnProperty(name));
+      .filter(
+        (name) =>
+          stats.custom_fields.hasOwnProperty(name) &&
+          !RESERVED_FIELDS.includes(name)
+      );
   },
 });
 
@@ -115,7 +138,9 @@ export const labelClasses = selectorFamily({
   key: "labelClasses",
   get: (label) => ({ get }) => {
     const stats = get(datasetStats);
-    return stats.labels ? stats.labels[label].classes : [];
+    return stats.labels && stats.labels[label]
+      ? stats.labels[label].classes
+      : [];
   },
 });
 
@@ -201,9 +226,16 @@ export const refreshColorMap = selector({
   key: "refreshColorMap",
   get: ({ get }) => get(atoms.colorMap),
   set: ({ get, set }, colorMap) => {
+    const frames = get(mediaType) == "video" ? ["frames"] : [];
+    const colorLabelNames = Object.entries(get(labelTypes))
+      .filter(([name, type]) => labelTypeHasColor(type))
+      .map(([name]) => name);
     set(
       atoms.colorMap,
-      generateColorMap([...get(tagNames), ...get(labelNames)], colorMap)
+      generateColorMap(
+        [...get(tagNames), ...colorLabelNames, ...frames],
+        colorMap
+      )
     );
   },
 });
