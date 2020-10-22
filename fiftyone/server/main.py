@@ -10,6 +10,7 @@ from collections import defaultdict
 import json
 import logging
 import os
+import signal
 import traceback
 import uuid
 
@@ -500,6 +501,13 @@ def _numeric_distribution_pipelines(view, pipeline, buckets=50):
 socketio.on_namespace(StateController("/state"))
 
 
+def shutdown(sig, *args):
+    logger.info("Shutting down server: signal %i", sig)
+    signal.signal(sig, signal.SIG_DFL)
+    with app.app_context():
+        socketio.stop()
+
+
 if __name__ == "__main__":
     log_path = os.path.join(
         foc.FIFTYONE_CONFIG_DIR, "var", "log", "server.log"
@@ -511,5 +519,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5151)
     args = parser.parse_args()
+
+    for signal_name in ("SIGINT", "SIGQUIT", "SIGTERM"):
+        signal_id = getattr(signal, signal_name, None)
+        if signal_id is not None:
+            signal.signal(signal_id, shutdown)
 
     socketio.run(app, port=args.port, debug=foc.DEV_INSTALL)
