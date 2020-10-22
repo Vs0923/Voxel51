@@ -198,7 +198,7 @@ class SampleCollection(object):
         """
         raise NotImplementedError("Subclass must implement get_field_schema()")
 
-    def get_frames_field_schema(
+    def get_frame_field_schema(
         self, ftype=None, embedded_doc_type=None, include_private=False
     ):
         """Returns a schema dictionary describing the fields of the frames of
@@ -221,7 +221,7 @@ class SampleCollection(object):
             the collection is not a video collection
         """
         raise NotImplementedError(
-            "Subclass must implement get_frames_field_schema()"
+            "Subclass must implement get_frame_field_schema()"
         )
 
     def make_unique_field_name(self, root=""):
@@ -264,7 +264,7 @@ class SampleCollection(object):
         if etau.is_str(field_or_fields):
             field_or_fields = [field_or_fields]
 
-        schema = self.get_field_schema()
+        schema = self.get_field_schema(include_private=True)
         default_fields = set(
             default_sample_fields(
                 DatasetSampleDocument, include_private=True, include_id=True
@@ -298,11 +298,20 @@ class SampleCollection(object):
                 expected type
         """
         schema = self.get_field_schema()
+        frames = self.media_type == fom.VIDEO and field_name.startswith(
+            "frames."
+        )
+        if frames:
+            field_name = field_name[len("frames.") :]
 
-        if field_name not in schema:
+        frame_schema = self.get_frame_field_schema()
+        if not frames and field_name not in schema:
             raise ValueError("Field '%s' does not exist" % field_name)
 
-        field = schema[field_name]
+        if frames and field_name not in frame_schema:
+            raise ValueError("Field '%s' does not exist" % field_name)
+
+        field = frame_schema[field_name] if frames else schema[field_name]
 
         if embedded_doc_type is not None:
             if not isinstance(field, fof.EmbeddedDocumentField) or (
@@ -484,7 +493,7 @@ class SampleCollection(object):
         return self._add_view_stage(fos.Exists(field, bool=bool))
 
     @view_stage
-    def filter_field(self, field, filter):
+    def filter_field(self, field, filter, only_matches=False):
         """Filters the values of the given field of the samples.
 
         Values of ``field`` for which ``filter`` returns ``False`` are
@@ -517,14 +526,18 @@ class SampleCollection(object):
             filter: a :class:`fiftyone.core.expressions.ViewExpression` or
                 `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
                 that returns a boolean describing the filter to apply
+            only_matches (False): whether to only include samples that match
+                the filter
 
         Returns:
             a :class:`fiftyone.core.view.DatasetView`
         """
-        return self._add_view_stage(fos.FilterField(field, filter))
+        return self._add_view_stage(
+            fos.FilterField(field, filter, only_matches=only_matches)
+        )
 
     @view_stage
-    def filter_classifications(self, field, filter):
+    def filter_classifications(self, field, filter, only_matches=False):
         """Filters the classifications of the given
         :class:`fiftyone.core.labels.Classifications` field.
 
@@ -549,11 +562,12 @@ class SampleCollection(object):
 
             #
             # Only include classifications in the `predictions` field whose
-            # `label` is "cat" or "dog"
+            # `label` is "cat" or "dog", and only show samples with at least
+            # one classification after filtering
             #
 
             view = dataset.filter_classifications(
-                "predictions", F("label").is_in(["cat", "dog"])
+                "predictions", F("label").is_in(["cat", "dog"]), only_matches=True
             )
 
         Args:
@@ -561,14 +575,18 @@ class SampleCollection(object):
             filter: a :class:`fiftyone.core.expressions.ViewExpression` or
                 `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
                 that returns a boolean describing the filter to apply
+            only_matches (False): whether to only include samples with at least
+                one classification after filtering
 
         Returns:
             a :class:`fiftyone.core.view.DatasetView`
         """
-        return self._add_view_stage(fos.FilterClassifications(field, filter))
+        return self._add_view_stage(
+            fos.FilterClassifications(field, filter, only_matches=only_matches)
+        )
 
     @view_stage
-    def filter_detections(self, field, filter):
+    def filter_detections(self, field, filter, only_matches=False):
         """Filters the detections of the given
         :class:`fiftyone.core.labels.Detections` field.
 
@@ -593,11 +611,12 @@ class SampleCollection(object):
 
             #
             # Only include detections in the `predictions` field whose `label`
-            # is "cat" or "dog"
+            # is "cat" or "dog", and only show samples with at least one
+            # detection after filtering
             #
 
             view = dataset.filter_detections(
-                "predictions", F("label").is_in(["cat", "dog"])
+                "predictions", F("label").is_in(["cat", "dog"]), only_matches=True
             )
 
             #
@@ -615,11 +634,123 @@ class SampleCollection(object):
             filter: a :class:`fiftyone.core.expressions.ViewExpression` or
                 `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
                 that returns a boolean describing the filter to apply
+            only_matches (False): whether to only include samples with at least
+                one detection after filtering
 
         Returns:
             a :class:`fiftyone.core.view.DatasetView`
         """
-        return self._add_view_stage(fos.FilterDetections(field, filter))
+        return self._add_view_stage(
+            fos.FilterDetections(field, filter, only_matches=only_matches)
+        )
+
+    @view_stage
+    def filter_polylines(self, field, filter, only_matches=False):
+        """Filters the polylines of the given
+        :class:`fiftyone.core.labels.Polylines` field.
+
+        Elements of ``<field>.polylines`` for which ``filter`` returns
+        ``False`` are omitted from the field.
+
+        Examples::
+
+            import fiftyone as fo
+            from fiftyone import ViewField as F
+            from fiftyone.core.stages import FilterPolylines
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include polylines in the `predictions` field that are filled
+            #
+
+            stage = FilterPolylines("predictions", F("filled"))
+            view = dataset.add_stage(stage)
+
+            #
+            # Only include polylines in the `predictions` field whose `label`
+            # is "lane", and only show samples with at least one polyline after
+            # filtering
+            #
+
+            stage = FilterPolylines(
+                "predictions", F("label") == "lane", only_matches=True
+            )
+            view = dataset.add_stage(stage)
+
+            #
+            # Only include polylines in the `predictions` field with at least
+            # 10 vertices
+            #
+
+            num_vertices = F("points").map(F().length()).sum()
+            stage = FilterPolylines("predictions", num_vertices >= 10)
+            view = dataset.add_stage(stage)
+
+        Args:
+            field: the :class:`fiftyone.core.labels.Polylines` field
+            filter: a :class:`fiftyone.core.expressions.ViewExpression` or
+                `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
+                that returns a boolean describing the filter to apply
+            only_matches (False): whether to only include samples with at least
+                one polyline after filtering
+
+        Returns:
+            a :class:`fiftyone.core.view.DatasetView`
+        """
+        return self._add_view_stage(
+            fos.FilterPolylines(field, filter, only_matches=only_matches)
+        )
+
+    @view_stage
+    def filter_keypoints(self, field, filter, only_matches=False):
+        """Filters the keypoints of the given
+        :class:`fiftyone.core.labels.Keypoints` field.
+
+        Elements of ``<field>.keypoints`` for which ``filter`` returns
+        ``False`` are omitted from the field.
+
+        Examples::
+
+            import fiftyone as fo
+            from fiftyone import ViewField as F
+            from fiftyone.core.stages import FilterKeypoints
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include keypoints in the `predictions` field whose `label`
+            # is "face", and only show samples with at least one keypoint after
+            # filtering
+            #
+
+            stage = FilterKeypoints(
+                "predictions", F("label") == "face", only_matches=True
+            )
+            view = dataset.add_stage(stage)
+
+            #
+            # Only include keypoints in the `predictions` field with at least
+            # 10 points
+            #
+
+            stage = FilterKeypoints("predictions", F("points").length() >= 10)
+            view = dataset.add_stage(stage)
+
+        Args:
+            field: the :class:`fiftyone.core.labels.Keypoints` field
+            filter: a :class:`fiftyone.core.expressions.ViewExpression` or
+                `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
+                that returns a boolean describing the filter to apply
+            only_matches (False): whether to only include samples with at least
+                one keypoint after filtering
+
+        Returns:
+            a :class:`fiftyone.core.view.DatasetView`
+        """
+        return self._add_view_stage(
+            fos.FilterKeypoints(field, filter, only_matches=only_matches)
+        )
 
     @view_stage
     def limit(self, limit):
@@ -1053,6 +1184,17 @@ class SampleCollection(object):
                     anno_dir,
                 )
 
+        if self.media_type == fom.VIDEO:
+            if label_fields is None:
+                label_fields = _get_frame_label_fields(self)
+
+                return foua.draw_labeled_videos(
+                    self,
+                    anno_dir,
+                    label_fields=label_fields,
+                    annotation_config=annotation_config,
+                )
+
         if label_fields is None:
             label_fields = _get_image_label_fields(self)
 
@@ -1071,6 +1213,9 @@ class SampleCollection(object):
         label_field=None,
         label_prefix=None,
         labels_dict=None,
+        frame_labels_field=None,
+        frame_labels_prefix=None,
+        frame_labels_dict=None,
         overwrite=False,
         **kwargs
     ):
@@ -1092,20 +1237,43 @@ class SampleCollection(object):
             dataset_exporter (None): a
                 :class:`fiftyone.utils.data.exporters.DatasetExporter` to use
                 to export the samples
-            label_field (None): the name of the label field to export, if
-                applicable. If none of ``label_field``, ``label_prefix``, and
-                ``labels_dict`` are specified and the requested output type is
-                a labeled dataset, the first field of compatible type for the
-                output format is used
+            label_field (None): the name of the label field to export. Only
+                applicable to labeled image datasets or labeled video datasets
+                with sample-level labels. If none of ``label_field``,
+                ``label_prefix``, and ``labels_dict`` are specified and the
+                requested output type is a labeled image dataset or labeled
+                video dataset with sample-level labels, the first field of
+                compatible type for the output format is used
             label_prefix (None): a label field prefix; all fields whose name
                 starts with the given prefix will be exported (with the prefix
-                removed when constructing the label dicts). This parameter can
-                only be used when the exporter can handle dictionaries of
-                labels
+                removed when constructing the label dicts). Only applicable to
+                labeled image datasets or labeled video datasets with
+                sample-level labels. This parameter can only be used when the
+                exporter can handle dictionaries of labels
             labels_dict (None): a dictionary mapping label field names to keys
                 to use when constructing the label dict to pass to the
-                exporter. This parameter can only be used when the exporter can
-                handle dictionaries of labels
+                exporter. Only applicable to labeled image datasets or labeled
+                video datasets with sample-level labels. This parameter can
+                only be used when the exporter can handle dictionaries of
+                labels
+            frame_labels_field (None): the name of the frame labels field to
+                export. Only applicable for labeled video datasets. If none of
+                ``frame_labels_field``, ``frame_labels_prefix``, and
+                ``frame_labels_dict`` are specified and the requested output
+                type is a labeled video dataset with frame-level labels, the
+                first frame-level field of compatible type for the output
+                format is used
+            frame_labels_prefix (None): a frame labels field prefix; all
+                frame-level fields whose name starts with the given prefix will
+                be exported (with the prefix removed when constructing the
+                frame label dicts). Only applicable for labeled video datasets.
+                This parameter can only be used when the exporter can handle
+                dictionaries of frame-level labels
+            frame_labels_dict (None): a dictionary mapping frame-level label
+                field names to keys to use when constructing the frame labels
+                dicts to pass to the exporter. Only applicable for labeled
+                video datasets. This parameter can only be used when the
+                exporter can handle dictionaries of frame-level labels
             overwrite (False): when an ``export_dir`` is provided, whether to
                 delete the existing directory before performing the export
             **kwargs: optional keyword arguments to pass to
@@ -1149,25 +1317,56 @@ class SampleCollection(object):
                     )
                 ) from e
 
-        if label_prefix is not None:
-            labels_dict = _get_labels_dict_for_prefix(self, label_prefix)
-
-        if labels_dict is not None:
-            label_field_or_dict = labels_dict
-        elif label_field is None:
-            # Choose the first label field that is compatible with the dataset
-            # exporter (if any)
-            label_field_or_dict = _get_default_label_field_for_exporter(
-                self, dataset_exporter
+        # Get label field(s) to export
+        if isinstance(dataset_exporter, foud.LabeledImageDatasetExporter):
+            # Labeled images
+            label_field_or_dict = _pick_label_fields(
+                self,
+                dataset_exporter,
+                label_field,
+                label_prefix,
+                labels_dict,
+                required=True,
             )
+            frame_labels_field_or_dict = None
+        elif isinstance(dataset_exporter, foud.LabeledVideoDatasetExporter):
+            # Labeled videos
+            label_field_or_dict = _pick_label_fields(
+                self,
+                dataset_exporter,
+                label_field,
+                label_prefix,
+                labels_dict,
+                required=False,
+            )
+            frame_labels_field_or_dict = _pick_frame_labels_fields(
+                self,
+                dataset_exporter,
+                frame_labels_field,
+                frame_labels_prefix,
+                frame_labels_dict,
+                required=False,
+            )
+
+            if (
+                label_field_or_dict is None
+                and frame_labels_field_or_dict is None
+            ):
+                raise ValueError(
+                    "Unable to locate compatible sample or frame-level "
+                    "field(s) to export"
+                )
         else:
-            label_field_or_dict = label_field
+            # Unlabeled
+            label_field_or_dict = None
+            frame_labels_field_or_dict = None
 
         # Export the dataset
         foud.export_samples(
             self,
             dataset_exporter=dataset_exporter,
             label_field_or_dict=label_field_or_dict,
+            frame_labels_field_or_dict=frame_labels_field_or_dict,
         )
 
     def create_index(self, field):
@@ -1305,8 +1504,8 @@ class SampleCollection(object):
     def _serialize_field_schema(self):
         return self._serialize_schema(self.get_field_schema())
 
-    def _serialize_frames_field_schema(self):
-        return self._serialize_schema(self.get_frames_field_schema())
+    def _serialize_frame_field_schema(self):
+        return self._serialize_schema(self.get_frame_field_schema())
 
     def _serialize_schema(self, schema):
         return {field_name: str(field) for field_name, field in schema.items()}
@@ -1318,6 +1517,54 @@ def _get_random_characters(n):
     )
 
 
+def _pick_label_fields(
+    sample_collection,
+    dataset_exporter,
+    label_field,
+    label_prefix,
+    labels_dict,
+    required=True,
+):
+    if label_prefix is not None:
+        labels_dict = _get_labels_dict_for_prefix(
+            sample_collection, label_prefix
+        )
+
+    if labels_dict is not None:
+        return labels_dict
+
+    if label_field is None:
+        return _get_default_label_fields_for_exporter(
+            sample_collection, dataset_exporter, required=required
+        )
+
+    return label_field
+
+
+def _pick_frame_labels_fields(
+    sample_collection,
+    dataset_exporter,
+    frame_labels_field,
+    frame_labels_prefix,
+    frame_labels_dict,
+    required=True,
+):
+    if frame_labels_prefix is not None:
+        frame_labels_dict = _get_frame_labels_dict_for_prefix(
+            sample_collection, frame_labels_prefix
+        )
+
+    if frame_labels_dict is not None:
+        return frame_labels_dict
+
+    if frame_labels_field is None:
+        return _get_default_frame_label_fields_for_exporter(
+            sample_collection, dataset_exporter, required=required
+        )
+
+    return frame_labels_field
+
+
 def _get_image_label_fields(sample_collection):
     label_fields = sample_collection.get_field_schema(
         ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.ImageLabel
@@ -1325,16 +1572,30 @@ def _get_image_label_fields(sample_collection):
     return list(label_fields.keys())
 
 
-def _get_labels_dict_for_prefix(sample_collection, label_prefix):
-    if sample_collection.media_type == fom.VIDEO:
-        label_fields = sample_collection.get_frames_field_schema(
-            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
-        )
-    else:
-        label_fields = sample_collection.get_field_schema(
-            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
-        )
+def _get_frame_label_fields(sample_collection):
+    label_fields = sample_collection.get_frame_field_schema(
+        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.ImageLabel
+    )
+    return list(label_fields.keys())
 
+
+def _get_labels_dict_for_prefix(sample_collection, label_prefix):
+    label_fields = sample_collection.get_field_schema(
+        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+    )
+
+    return _make_labels_dict_for_prefix(label_fields, label_prefix)
+
+
+def _get_frame_labels_dict_for_prefix(sample_collection, frame_labels_prefix):
+    label_fields = sample_collection.get_frame_field_schema(
+        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+    )
+
+    return _make_labels_dict_for_prefix(label_fields, frame_labels_prefix)
+
+
+def _make_labels_dict_for_prefix(label_fields, label_prefix):
     labels_dict = {}
     for field_name in label_fields:
         if field_name.startswith(label_prefix):
@@ -1343,50 +1604,99 @@ def _get_labels_dict_for_prefix(sample_collection, label_prefix):
     return labels_dict
 
 
-def _get_default_label_field_for_exporter(sample_collection, dataset_exporter):
+def _get_default_label_fields_for_exporter(
+    sample_collection, dataset_exporter, required=True
+):
+    label_cls = dataset_exporter.label_cls
+
+    if label_cls is None:
+        if required:
+            raise ValueError(
+                "Cannot select a default field when exporter does not provide "
+                "a `label_cls`"
+            )
+
+        return None
+
+    label_fields = sample_collection.get_field_schema(
+        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+    )
+
+    label_field_or_dict = _get_fields_with_types(label_fields, label_cls)
+
+    if label_field_or_dict is not None:
+        return label_field_or_dict
+
     #
-    # Labeled image datasets
+    # SPECIAL CASE
+    #
+    # The export routine can convert `Classification` labels to Detections`
+    # format just-in-time, if necessary. So, allow a `Classification` field
+    # to be returned here
     #
 
-    if isinstance(dataset_exporter, foud.LabeledImageDatasetExporter):
-        label_cls = dataset_exporter.label_cls
-        label_fields = sample_collection.get_field_schema(
-            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
-        )
+    if label_cls is fol.Detections:
         for field, field_type in label_fields.items():
-            if issubclass(field_type.document_type, label_cls):
+            if issubclass(field_type.document_type, fol.Classification):
                 return field
 
-        #
-        # SPECIAL CASE
-        #
-        # The export routine can convert `Classification` labels to Detections`
-        # format just-in-time, if necessary. So, allow a `Classification` field
-        # to be returned here
-        #
-        if label_cls is fol.Detections:
-            for field, field_type in label_fields.items():
-                if issubclass(field_type.document_type, fol.Classification):
-                    return field
+    if required:
+        raise ValueError("No compatible field(s) of type %s found" % label_cls)
 
-        raise ValueError("No compatible field of type %s found" % label_cls)
+    return None
 
-    #
-    # Video datasets
-    #
 
-    if sample_collection.media_type == fom.VIDEO:
-        label_fields = sample_collection.get_frames_field_schema(
-            ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+def _get_default_frame_label_fields_for_exporter(
+    sample_collection, dataset_exporter, required=True
+):
+    frame_labels_cls = dataset_exporter.frame_labels_cls
+
+    if frame_labels_cls is None:
+        if required:
+            raise ValueError(
+                "Cannot select a default frame field when exporter does not "
+                "provide a `frame_labels_cls`"
+            )
+
+        return None
+
+    frame_labels_fields = sample_collection.get_frame_field_schema(
+        ftype=fof.EmbeddedDocumentField, embedded_doc_type=fol.Label
+    )
+
+    frame_labels_field_or_dict = _get_fields_with_types(
+        frame_labels_fields, frame_labels_cls
+    )
+
+    if frame_labels_field_or_dict is not None:
+        return frame_labels_field_or_dict
+
+    if required:
+        raise ValueError(
+            "No compatible frame field(s) of type %s found" % frame_labels_cls
         )
 
-        for field, field_type in label_fields.items():
-            return field  # Just return first field
+    return None
 
-        raise ValueError("No compatible field of type %s found" % label_cls)
 
-    #
-    # Other
-    #
+def _get_fields_with_types(label_fields, label_cls):
+    if isinstance(label_cls, dict):
+        # Return first matching field for all dict keys
+        labels_dict = {}
+        for name, _label_cls in label_cls.items():
+            field = _get_field_with_type(label_fields, _label_cls)
+            if field is not None:
+                labels_dict[field] = name
+
+        return labels_dict if labels_dict else None
+
+    # Return first matching field, if any
+    return _get_field_with_type(label_fields, label_cls)
+
+
+def _get_field_with_type(label_fields, label_cls):
+    for field, field_type in label_fields.items():
+        if issubclass(field_type.document_type, label_cls):
+            return field
 
     return None

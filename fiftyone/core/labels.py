@@ -6,7 +6,6 @@ Labels stored in dataset samples.
 |
 """
 from bson.objectid import ObjectId
-from collections import defaultdict
 
 import eta.core.data as etad
 import eta.core.geometry as etag
@@ -334,6 +333,28 @@ class Detection(ImageLabel, _HasID, _HasAttributes):
     confidence = fof.FloatField()
     index = fof.IntField()
 
+    def to_polyline(self, tolerance=2, filled=True):
+        """Returns a :class:`Polyline` representation of this instance.
+
+        If the detection has a mask, the returned polyline will trace the
+        boundary of the mask; otherwise, the polyline will trace the bounding
+        box itself.
+
+        Args:
+            dobj: a DetectedObject
+            tolerance (2): a tolerance, in pixels, when generating an
+                approximate polyline for the instance mask
+            filled (True): whether the polyline should be filled
+
+        Returns:
+            a :class:`Polyline`
+        """
+        dobj = self.to_detected_object()
+        polyline = etai.convert_object_to_polygon(
+            dobj, tolerance=tolerance, filled=filled
+        )
+        return Polyline.from_eta_polyline(polyline)
+
     def to_detected_object(self, name=None):
         """Returns an ``eta.core.objects.DetectedObject`` representation of
         this instance.
@@ -457,26 +478,55 @@ class Detections(ImageLabel):
 
 
 class Polyline(ImageLabel, _HasID, _HasAttributes):
-    """A polyline or polygon.
+    """A set of semantically related polylines or polygons.
 
     Args:
-        label (None): a label for the shape
-        points (None): a list of ``(x, y)`` points in ``[0, 1] x [0, 1]``
-            describing the vertexes of a polyline
-        closed (False): whether the polyline is closed, i.e., and edge should
-            be drawn from the last vertex to the first vertex
-        filled (False): whether the polyline represents a shape that can be
-            filled when rendering it
+        label (None): a label for the polyline
+        points (None): a list of lists of ``(x, y)`` points in
+            ``[0, 1] x [0, 1]`` describing the vertices of each shape in the
+            polyline
+        index (None): an index for the polyline
+        closed (False): whether the shapes are closed, i.e., and edge should
+            be drawn from the last vertex to the first vertex of each shape
+        filled (False): whether the polyline represents polygons, i.e., shapes
+            that should be filled when rendering them
         attributes ({}): a dict mapping attribute names to :class:`Attribute`
-            instances
+            instances for the polyline
     """
 
     meta = {"allow_inheritance": True}
 
     label = fof.StringField()
-    points = fof.ListField()
+    points = fof.PolylinePointsField()
+    index = fof.IntField()
     closed = fof.BooleanField(default=False)
     filled = fof.BooleanField(default=False)
+
+    def to_detection(self, mask_size):
+        """Returns a :class:`Detection` representation of this instance whose
+        bounding box tightly encloses the polyline and whose mask encodes the
+        polyline's shape.
+
+        Args:
+            mask_size: the ``(width, height)`` at which to render the instance
+                mask
+
+        Returns:
+            a :class:`Detection`
+        """
+        # Render bounding box and mask
+        polyline = self.to_eta_polyline()
+        bbox, mask = etai.render_bounding_box_and_mask(polyline, mask_size)
+        xtl, ytl, xbr, ybr = bbox.to_coords()
+        bounding_box = [xtl, ytl, (xbr - xtl), (ybr - ytl)]
+
+        return Detection(
+            label=self.label,
+            bounding_box=bounding_box,
+            mask=mask,
+            index=self.index,
+            attributes=self.attributes,
+        )
 
     def to_eta_polyline(self, name=None):
         """Returns an ``eta.core.polylines.Polyline`` representation of this
@@ -493,6 +543,7 @@ class Polyline(ImageLabel, _HasID, _HasAttributes):
 
         return etap.Polyline(
             label=self.label,
+            index=self.index,
             name=name,
             points=self.points,
             closed=self.closed,
@@ -530,6 +581,7 @@ class Polyline(ImageLabel, _HasID, _HasAttributes):
         return cls(
             label=polyline.label,
             points=polyline.points,
+            index=polyline.index,
             closed=polyline.closed,
             filled=polyline.filled,
             attributes=attributes,
@@ -587,6 +639,7 @@ class Keypoint(ImageLabel, _HasID, _HasAttributes):
     Args:
         label (None): a label for the points
         points (None): a list of ``(x, y)`` keypoints in ``[0, 1] x [0, 1]``
+        index (None): an index for the keypoints
         attributes ({}): a dict mapping attribute names to :class:`Attribute`
             instances
     """
@@ -594,7 +647,8 @@ class Keypoint(ImageLabel, _HasID, _HasAttributes):
     meta = {"allow_inheritance": True}
 
     label = fof.StringField()
-    points = fof.ListField()
+    points = fof.KeypointsField()
+    index = fof.IntField()
 
     def to_eta_keypoints(self, name=None):
         """Returns an ``eta.core.keypoints.Keypoints`` representation of this
@@ -610,7 +664,11 @@ class Keypoint(ImageLabel, _HasID, _HasAttributes):
         attrs = _to_eta_attributes(self.attributes)
 
         return etak.Keypoints(
-            name=name, label=self.label, points=self.points, attrs=attrs,
+            name=name,
+            label=self.label,
+            index=self.index,
+            points=self.points,
+            attrs=attrs,
         )
 
     def to_image_labels(self, name=None):
@@ -643,6 +701,7 @@ class Keypoint(ImageLabel, _HasID, _HasAttributes):
         return cls(
             label=keypoints.label,
             points=keypoints.points,
+            index=keypoints.index,
             attributes=attributes,
         )
 
@@ -717,84 +776,21 @@ class Segmentation(ImageLabel):
         return etai.ImageLabels(mask=self.mask)
 
 
-class ImageLabels(ImageLabel):
-    """A collection of multitask labels for an image sample in a
-    :class:`fiftyone.core.dataset.Dataset`.
-
-    Args:
-        labels: an ``eta.core.image.ImageLabels`` or a serialized dict
-            representation of one
+class _FrameLabels(Label):
+    """Hidden label class strictly for storing labels for the first frame of
+    video samples.
     """
 
-    meta = {"allow_inheritance": True}
+    pass
 
-    labels = fof.ImageLabelsField()
 
-    def to_image_labels(self, name=None):
-        """Returns an ``eta.core.image.ImageLabels`` representation of this
-        instance.
+class _Frames(Label):
+    """Hidden label class strictly for storing quick access information about
+    frame labels for video samples.
+    """
 
-        Args:
-            name (None): the name of the label field
-
-        Returns:
-            an ``eta.core.image.ImageLabels``
-        """
-        return self.labels
-
-    def expand(
-        self,
-        prefix=None,
-        labels_dict=None,
-        multilabel=False,
-        skip_non_categorical=False,
-    ):
-        """Expands the image labels into a dictionary of :class:`Label`
-        instances.
-
-        Provide ``labels_dict`` if you want to customize which components of
-        the labels are expanded. Otherwise, all labels are expanded as
-        explained below.
-
-        If ``multilabel`` is False, frame attributes will be stored in separate
-        :class:`Classification` fields with names ``prefix + attr.name``.
-
-        If ``multilabel`` if True, all frame attributes will be stored in a
-        :class:`Classifications` field called ``prefix + "attrs"``.
-
-        Objects are expanded into fields with names ``prefix + obj.name``, or
-        ``prefix + "objs"`` for objects that do not have their ``name`` field
-        populated.
-
-        Polylines are expanded into fields with names
-        ``prefix + polyline.name``, or ``prefix + "polylines"`` for polylines
-        that do not have their ``name`` field populated.
-
-        Keypoints are expanded into fields with names
-        ``prefix + keypoints.name``, or ``prefix + "keypoints"`` for keypoints
-        that do not have their ``name`` field populated.
-
-        Args:
-            prefix (None): a string prefix to prepend to each field name in the
-                output dict
-            labels_dict (None): a dictionary mapping names of labels to keys to
-                assign them in the output dictionary
-            multilabel (False): whether to store frame attributes in a single
-                :class:`Classifications` instance
-            skip_non_categorical (False): whether to skip non-categorical
-                frame attributes (True) or cast them to strings (False)
-
-        Returns:
-            a dict mapping label names to :class:`Label` instances
-        """
-        if labels_dict is not None:
-            return _expand_with_labels_dict(
-                self, labels_dict, multilabel, skip_non_categorical
-            )
-
-        return _expand_with_prefix(
-            self, prefix, multilabel, skip_non_categorical
-        )
+    frame_count = fof.IntField(required=True, null=False, default=0)
+    first_frame = fof.EmbeddedDocumentField(_FrameLabels, null=True)
 
 
 def _from_eta_attributes(attrs):
@@ -829,159 +825,3 @@ def _to_eta_attributes(attributes):
         attrs.add(_attr)
 
     return attrs
-
-
-def _expand_with_prefix(
-    image_labels, prefix, multilabel, skip_non_categorical
-):
-    if prefix is None:
-        prefix = ""
-
-    labels = {}
-    _image_labels = image_labels.labels
-
-    #
-    # Classifications
-    #
-
-    if multilabel:
-        # Store frame attributes as multilabels
-        # pylint: disable=no-member
-        labels[prefix + "attrs"] = Classifications.from_attributes(
-            _image_labels.attrs, skip_non_categorical=skip_non_categorical,
-        )
-    else:
-        # Store each frame attribute separately
-        for attr in _image_labels.attrs:  # pylint: disable=no-member
-            if skip_non_categorical and not etau.is_str(attr.value):
-                continue
-
-            labels[prefix + attr.name] = Classification.from_attribute(attr)
-
-    #
-    # Detections
-    #
-
-    objects_map = defaultdict(etao.DetectedObjectContainer)
-
-    for dobj in _image_labels.objects:
-        objects_map[prefix + (dobj.name or "objs")].add(dobj)
-
-    for name, objects in objects_map.items():
-        # pylint: disable=no-member
-        labels[name] = Detections.from_detected_objects(objects)
-
-    #
-    # Polylines
-    #
-
-    polylines_map = defaultdict(etap.PolylineContainer)
-
-    for polyline in _image_labels.polylines:
-        polylines_map[prefix + (polyline.name or "polylines")].add(polyline)
-
-    for name, polylines in polylines_map.items():
-        # pylint: disable=no-member
-        labels[name] = Polylines.from_eta_polylines(polylines)
-
-    #
-    # Keypoints
-    #
-
-    keypoints_map = defaultdict(etak.KeypointsContainer)
-
-    for keypoints in _image_labels.keypoints:
-        keypoints_map[prefix + (keypoints.name or "keypoints")].add(keypoints)
-
-    for name, keypoints in keypoints_map.items():
-        # pylint: disable=no-member
-        labels[name] = Keypoints.from_eta_keypoints(keypoints)
-
-    return labels
-
-
-def _expand_with_labels_dict(
-    image_labels, labels_dict, multilabel, skip_non_categorical
-):
-    labels = {}
-    _image_labels = image_labels.labels
-
-    #
-    # Classifications
-    #
-
-    if multilabel:
-        # Store frame attributes as multilabels
-        attrs_map = defaultdict(etad.AttributeContainer)
-        for attr in _image_labels.attrs:
-            if attr.name not in labels_dict:
-                continue
-
-            attrs_map[labels_dict[attr.name]].add(attr)
-
-        for name, attrs in attrs_map.items():
-            labels[name] = Classifications.from_attributes(
-                attrs, skip_non_categorical=skip_non_categorical
-            )
-    else:
-        # Store each frame attribute separately
-        for attr in _image_labels.attrs:  # pylint: disable=no-member
-            if skip_non_categorical and not etau.is_str(attr.value):
-                continue
-
-            if attr.name not in labels_dict:
-                continue
-
-            labels[labels_dict[attr.name]] = Classification.from_attribute(
-                attr
-            )
-
-    #
-    # Detections
-    #
-
-    objects_map = defaultdict(etao.DetectedObjectContainer)
-
-    for dobj in _image_labels.objects:
-        if dobj.name not in labels_dict:
-            continue
-
-        objects_map[labels_dict[dobj.name]].add(dobj)
-
-    for name, objects in objects_map.items():
-        # pylint: disable=no-member
-        labels[name] = Detections.from_detected_objects(objects)
-
-    #
-    # Polylines
-    #
-
-    polylines_map = defaultdict(etap.PolylineContainer)
-
-    for polyline in _image_labels.polylines:
-        if polyline.name not in labels_dict:
-            continue
-
-        polylines_map[labels_dict[polyline.name]].add(polyline)
-
-    for name, polylines in polylines_map.items():
-        # pylint: disable=no-member
-        labels[name] = Polylines.from_eta_polylines(polylines)
-
-    #
-    # Keypoints
-    #
-
-    keypoints_map = defaultdict(etak.KeypointsContainer)
-
-    for keypoints in _image_labels.keypoints:
-        if keypoints.name not in labels_dict:
-            continue
-
-        keypoints_map[labels_dict[keypoints.name]].add(keypoints)
-
-    for name, keypoints in keypoints_map.items():
-        # pylint: disable=no-member
-        labels[name] = Keypoints.from_eta_keypoints(keypoints)
-
-    return labels

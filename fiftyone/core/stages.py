@@ -106,6 +106,7 @@ class ViewStage(object):
         """
         if self._uuid is None:
             self._uuid = str(uuid.uuid4())
+
         return {
             "kwargs": self._kwargs(),
             "_cls": etau.get_class_name(self),
@@ -429,11 +430,14 @@ class FilterField(ViewStage):
         filter: a :class:`fiftyone.core.expressions.ViewExpression` or
             `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
             that returns a boolean describing the filter to apply
+        only_matches (False): whether to only include samples that match the
+            filter
     """
 
-    def __init__(self, field, filter):
+    def __init__(self, field, filter, only_matches=False):
         self._field = field
         self._filter = filter
+        self._only_matches = only_matches
         self._validate_params()
 
     @property
@@ -446,25 +450,37 @@ class FilterField(ViewStage):
         """The filter expression."""
         return self._filter
 
+    @property
+    def only_matches(self):
+        """Whether to only include samples that match the filter."""
+        return self._only_matches
+
     def to_mongo(self):
         """Returns the MongoDB version of the stage.
 
         Returns:
             a MongoDB aggregation pipeline (list of dicts)
         """
-        return [
+        pipeline = [
             {
                 "$addFields": {
-                    self.field: {
+                    self._field: {
                         "$cond": {
                             "if": self._get_mongo_filter(),
-                            "then": "$" + self.field,
+                            "then": "$" + self._field,
                             "else": None,
                         }
                     }
                 }
             }
         ]
+
+        if self._only_matches:
+            pipeline.append(
+                {"$match": {self._field: {"$exists": True, "$ne": None}}}
+            )
+
+        return pipeline
 
     def _get_mongo_filter(self):
         if isinstance(self._filter, ViewExpression):
@@ -473,13 +489,23 @@ class FilterField(ViewStage):
         return self._filter
 
     def _kwargs(self):
-        return [["field", self._field], ["filter", self._get_mongo_filter()]]
+        return [
+            ["field", self._field],
+            ["filter", self._get_mongo_filter()],
+            ["only_matches", self._only_matches],
+        ]
 
     @classmethod
     def _params(self):
         return [
             {"name": "field", "type": "field"},
             {"name": "filter", "type": "dict", "placeholder": ""},
+            {
+                "name": "only_matches",
+                "type": "bool",
+                "default": "False",
+                "placeholder": "only matches (default=False)",
+            },
         ]
 
     def _validate_params(self):
@@ -510,7 +536,7 @@ class _FilterListField(FilterField):
         Returns:
             a MongoDB aggregation pipeline (list of dicts)
         """
-        return [
+        pipeline = [
             {
                 "$addFields": {
                     self._filter_field: {
@@ -522,6 +548,29 @@ class _FilterListField(FilterField):
                 }
             }
         ]
+
+        if self._only_matches:
+            pipeline.append(
+                {
+                    "$match": {
+                        self._filter_field: {
+                            "$gt": [
+                                {
+                                    "$size": {
+                                        "$ifNull": [
+                                            "$" + self._filter_field,
+                                            [],
+                                        ]
+                                    }
+                                },
+                                0,
+                            ]
+                        }
+                    }
+                }
+            )
+
+        return pipeline
 
     def _get_mongo_filter(self):
         if isinstance(self._filter, ViewExpression):
@@ -556,11 +605,12 @@ class FilterClassifications(_FilterListField):
 
         #
         # Only include classifications in the `predictions` field whose `label`
-        # is "cat" or "dog"
+        # is "cat" or "dog", and only show samples with at least one
+        # classification after filtering
         #
 
         stage = FilterClassifications(
-            "predictions", F("label").is_in(["cat", "dog"])
+            "predictions", F("label").is_in(["cat", "dog"]), only_matches=True
         )
         view = dataset.add_stage(stage)
 
@@ -570,6 +620,8 @@ class FilterClassifications(_FilterListField):
         filter: a :class:`fiftyone.core.expressions.ViewExpression` or
             `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
             that returns a boolean describing the filter to apply
+        only_matches (False): whether to only include samples with at least
+            one classification after filtering
     """
 
     @property
@@ -607,11 +659,12 @@ class FilterDetections(_FilterListField):
 
         #
         # Only include detections in the `predictions` field whose `label` is
-        # "cat" or "dog"
+        # "cat" or "dog", and only show samples with at least one detection
+        # after filtering
         #
 
         stage = FilterDetections(
-            "predictions", F("label").is_in(["cat", "dog"])
+            "predictions", F("label").is_in(["cat", "dog"]), only_matches=True
         )
         view = dataset.add_stage(stage)
 
@@ -632,6 +685,8 @@ class FilterDetections(_FilterListField):
         filter: a :class:`fiftyone.core.expressions.ViewExpression` or
             `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
             that returns a boolean describing the filter to apply
+        only_matches (False): whether to only include samples with at least
+            one detection after filtering
     """
 
     @property
@@ -643,6 +698,122 @@ class FilterDetections(_FilterListField):
             self.field,
             fof.EmbeddedDocumentField,
             embedded_doc_type=fol.Detections,
+        )
+
+
+class FilterPolylines(_FilterListField):
+    """Filters the :class:`fiftyone.core.labels.Polyline` elements in the
+    specified :class:`fiftyone.core.labels.Polylines` field of the samples in
+    the stage.
+
+    Examples::
+
+        import fiftyone as fo
+        from fiftyone import ViewField as F
+        from fiftyone.core.stages import FilterPolylines
+
+        dataset = fo.load_dataset(...)
+
+        #
+        # Only include polylines in the `predictions` field that are filled
+        #
+
+        stage = FilterPolylines("predictions", F("filled"))
+        view = dataset.add_stage(stage)
+
+        #
+        # Only include polylines in the `predictions` field whose `label` is
+        # "lane", and only show samples with at least one polyline after
+        # filtering
+        #
+
+        stage = FilterPolylines(
+            "predictions", F("label") == "lane", only_matches=True
+        )
+        view = dataset.add_stage(stage)
+
+        #
+        # Only include polylines in the `predictions` field with at least
+        # 10 vertices
+        #
+
+        num_vertices = F("points").map(F().length()).sum()
+        stage = FilterPolylines("predictions", num_vertices >= 10)
+        view = dataset.add_stage(stage)
+
+    Args:
+        field: the field to filter, which must be a
+            :class:`fiftyone.core.labels.Polylines`
+        filter: a :class:`fiftyone.core.expressions.ViewExpression` or
+            `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
+            that returns a boolean describing the filter to apply
+        only_matches (False): whether to only include samples with at least
+            one polyline after filtering
+    """
+
+    @property
+    def _filter_field(self):
+        return self.field + ".polylines"
+
+    def validate(self, sample_collection):
+        sample_collection.validate_field_type(
+            self.field,
+            fof.EmbeddedDocumentField,
+            embedded_doc_type=fol.Polylines,
+        )
+
+
+class FilterKeypoints(_FilterListField):
+    """Filters the :class:`fiftyone.core.labels.Keypoint` elements in the
+    specified :class:`fiftyone.core.labels.Keypoints` field of the samples in
+    the stage.
+
+    Examples::
+
+        import fiftyone as fo
+        from fiftyone import ViewField as F
+        from fiftyone.core.stages import FilterKeypoints
+
+        dataset = fo.load_dataset(...)
+
+        #
+        # Only include keypoints in the `predictions` field whose `label` is
+        # "face", and only show samples with at least one keypoint after
+        # filtering
+        #
+
+        stage = FilterKeypoints(
+            "predictions", F("label") == "face", only_matches=True
+        )
+        view = dataset.add_stage(stage)
+
+        #
+        # Only include keypoints in the `predictions` field with at least
+        # 10 points
+        #
+
+        stage = FilterKeypoints("predictions", F("points").length() >= 10)
+        view = dataset.add_stage(stage)
+
+    Args:
+        field: the field to filter, which must be a
+            :class:`fiftyone.core.labels.Keypoints`
+        filter: a :class:`fiftyone.core.expressions.ViewExpression` or
+            `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
+            that returns a boolean describing the filter to apply
+        only_matches (False): whether to only include samples with at least
+            one keypoint after filtering
+    """
+
+    @property
+    def _filter_field(self):
+        return self.field + ".keypoints"
+
+    def validate(self, sample_collection):
+        sample_collection.validate_field_type(
+            self.field,
+            fof.EmbeddedDocumentField,
+            embedded_doc_type=fol.Keypoints,
         )
 
 
@@ -1458,6 +1629,8 @@ _STAGES = [
     FilterField,
     FilterClassifications,
     FilterDetections,
+    FilterPolylines,
+    FilterKeypoints,
     Limit,
     Match,
     MatchTag,

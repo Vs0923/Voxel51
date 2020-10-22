@@ -6,6 +6,7 @@ import { useRecoilValue } from "recoil";
 import CircularProgress from "@material-ui/core/CircularProgress";
 import { Warning } from "@material-ui/icons";
 
+import ExternalLink from "./ExternalLink";
 import Player51 from "../player51/build/cjs/player51.min.js";
 import { useEventHandler } from "../utils/hooks";
 import { convertSampleToETA } from "../utils/labels";
@@ -16,6 +17,8 @@ import * as selectors from "../recoil/selectors";
 const InfoWrapper = styled.div`
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 100;
   width: 100%;
   height: 100%;
   align-items: center;
@@ -29,6 +32,9 @@ const InfoWrapper = styled.div`
   svg.error {
     color: ${({ theme }) => theme.error};
   }
+  p {
+    margin: 0;
+  }
 `;
 
 export default ({
@@ -39,7 +45,10 @@ export default ({
   style,
   onClick,
   onDoubleClick,
+  overlay = null,
   onLoad = () => {},
+  onMouseEnter = null,
+  onMouseLeave = null,
   activeLabels,
   frameLabelsActive,
   fieldSchema = {},
@@ -50,11 +59,13 @@ export default ({
   const filter = useRecoilValue(filterSelector);
   const colorMap = useRecoilValue(atoms.colorMap);
   const mediaType = useRecoilValue(selectors.mediaType);
-  const overlay = convertSampleToETA(sample, fieldSchema);
+  if (overlay === null) {
+    overlay = convertSampleToETA(sample, fieldSchema);
+  }
   const [mediaLoading, setMediaLoading] = useState(true);
   const [initLoad, setInitLoad] = useState(false);
   const [error, setError] = useState(null);
-  const id = uuid();
+  const [id] = useState(() => uuid());
   const mimetype =
     (sample.metadata && sample.metadata.mime_type) ||
     mime.lookup(sample.filepath) ||
@@ -65,6 +76,7 @@ export default ({
   if (mediaType === "video") {
     playerActiveLabels.frames = frameLabelsActive;
   }
+
   const [player] = useState(() => {
     try {
       return new Player51({
@@ -114,6 +126,9 @@ export default ({
         filter,
         colorMap,
       });
+      if (!thumbnail) {
+        player.updateOverlay(overlay);
+      }
     }
   }, [player, filter, overlay, playerActiveLabels, colorMap]);
 
@@ -121,9 +136,24 @@ export default ({
   useEventHandler(player, "load", onLoad);
   useEventHandler(player, "error", () =>
     setError(
-      `This video failed to load. Its type (${mimetype}) may be unsupported.`
+      <>
+        <p>
+          This video failed to load. Its type ({mimetype}) may be unsupported.
+        </p>
+        <p>
+          You can use{" "}
+          <code>
+            <ExternalLink href="https://voxel51.com/docs/fiftyone/api/fiftyone.utils.video.html#fiftyone.utils.video.reencode_videos">
+              fiftyone.utils.video.reencode_videos()
+            </ExternalLink>
+          </code>{" "}
+          to re-encode videos in a supported format.
+        </p>
+      </>
     )
   );
+  onMouseEnter && useEventHandler(player, "mouseenter", onMouseEnter);
+  onMouseLeave && useEventHandler(player, "mouseleave", onMouseLeave);
 
   return (
     <div id={id} style={style} {...props}>

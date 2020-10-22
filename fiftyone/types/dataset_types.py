@@ -186,6 +186,14 @@ class ImageClassificationDataset(LabeledImageDataset):
     pass
 
 
+class VideoClassificationDataset(LabeledVideoDataset):
+    """Base type for datasets that represent a collection of videos and a set
+    of associated classification labels.
+    """
+
+    pass
+
+
 class ImageDetectionDataset(LabeledImageDataset):
     """Base type for datasets that represent a collection of images and a set
     of associated object detections.
@@ -194,8 +202,24 @@ class ImageDetectionDataset(LabeledImageDataset):
     pass
 
 
+class VideoDetectionDataset(LabeledVideoDataset):
+    """Base type for datasets that represent a collection of videos and a set
+    of associated video object detections.
+    """
+
+    pass
+
+
 class ImageLabelsDataset(LabeledImageDataset):
     """Base type for datasets that represent a collection of images and a set
+    of associated multitask predictions.
+    """
+
+    pass
+
+
+class VideoLabelsDataset(LabeledVideoDataset):
+    """Base type for datasets that represent a collection of videos and a set
     of associated multitask predictions.
     """
 
@@ -330,6 +354,36 @@ class ImageClassificationDirectoryTree(ImageClassificationDataset):
         return foud.ImageClassificationDirectoryTreeExporter
 
 
+class VideoClassificationDirectoryTree(VideoClassificationDataset):
+    """A directory tree whose subfolders define a video classification dataset.
+
+    Datasets of this type are read/written in the following format::
+
+        <dataset_dir>/
+            <classA>/
+                <video1>.<ext>
+                <video2>.<ext>
+                ...
+            <classB>/
+                <video1>.<ext>
+                <video2>.<ext>
+                ...
+            ...
+
+    Unlabeled videos are stored in a subdirectory named ``_unlabeled``.
+    """
+
+    def get_dataset_importer_cls(self):
+        import fiftyone.utils.data as foud
+
+        return foud.VideoClassificationDirectoryTreeImporter
+
+    def get_dataset_exporter_cls(self):
+        import fiftyone.utils.data as foud
+
+        return foud.VideoClassificationDirectoryTreeExporter
+
+
 class TFImageClassificationDataset(ImageClassificationDataset):
     """A labeled dataset consisting of images and their associated
     classification labels stored as
@@ -440,7 +494,8 @@ class FiftyOneImageDetectionDataset(ImageDetectionDataset):
 
 class COCODetectionDataset(ImageDetectionDataset):
     """A labeled dataset consisting of images and their associated object
-    detections saved in `COCO format <http://cocodataset.org/#home>`_.
+    detections saved in
+    `COCO Object Detection Format <https://cocodataset.org/#format-data>`_.
 
     Datasets of this type are read/written in the following format::
 
@@ -489,13 +544,16 @@ class COCODetectionDataset(ImageDetectionDataset):
                     "image_id": 0,
                     "category_id": 2,
                     "bbox": [260, 177, 231, 199],
+                    "segmentation": [...],
                     "area": 45969,
-                    "segmentation": [],
                     "iscrowd": 0
                 },
                 ...
             ]
         }
+
+    See `this page <https://cocodataset.org/#format-data>`_ for a full
+    specification of the ``segmentation`` field.
 
     For unlabeled datasets, ``labels.json`` does not contain an ``annotations``
     field.
@@ -779,8 +837,8 @@ class TFObjectDetectionDataset(ImageDetectionDataset):
 
 
 class CVATImageDataset(ImageDetectionDataset):
-    """A labeled dataset consisting of images and their associated object
-    detections stored in `CVAT image format <https://github.com/opencv/cvat>`_.
+    """A labeled dataset consisting of images and their associated labels
+    stored in `CVAT image format <https://github.com/opencv/cvat>`_.
 
     Datasets of this type are read/written in the following format::
 
@@ -819,11 +877,11 @@ class CVATImageDataset(ImageDetectionDataset):
                             </attributes>
                         </label>
                         <label>
-                            <name>person</name>
+                            <name>traffic_line</name>
                             <attributes>
                                 <attribute>
-                                    <name>gender</name>
-                                    <values>male\\nfemale</values>
+                                    <name>color</name>
+                                    <values>white\\nyellow</values>
                                 </attribute>
                                 ...
                             </attributes>
@@ -845,19 +903,30 @@ class CVATImageDataset(ImageDetectionDataset):
                 </owner>
                 <dumped>2017-11-20 11:51:51.000000+00:00</dumped>
             </meta>
-            <image id="1" name="<uuid1>.<ext>" width="640" height="480">
+            <image id="0" name="<uuid1>.<ext>" width="640" height="480">
                 <box label="car" xtl="100" ytl="50" xbr="325" ybr="190" occluded="0">
                     <attribute name="type">sedan</attribute>
                     ...
                 </box>
                 ...
+                <polygon label="car" points="561.30,916.23;561.30,842.77;...;560.20,966.67" occluded="0">
+                    <attribute name="make">Honda</attribute>
+                    ...
+                </polygon>
+                ...
+                <polyline label="traffic_line" points="462.10,0.00;126.80,1200.00" occluded="0">
+                    <attribute name="color">yellow</attribute>
+                    ...
+                </polyline>
+                ...
+                <points label="wheel" points="574.90,939.48;1170.16,907.90;...;600.16,459.48" occluded="0">
+                    <attribute name="location">front_driver_side</attribute>
+                    ...
+                </points>
+                ...
             </image>
             ...
-            <image id="51" name="<uuid51>.<ext>" width="640" height="480">
-                <box label="person" xtl="300" ytl="25" xbr="375" ybr="400" occluded="0">
-                    <attribute name="gender">female</attribute>
-                    ...
-                </box>
+            <image id="50" name="<uuid51>.<ext>" width="640" height="480">
                 ...
             </image>
         </annotations>
@@ -876,7 +945,7 @@ class CVATImageDataset(ImageDetectionDataset):
         return fouc.CVATImageDatasetExporter
 
 
-class CVATVideoDataset(LabeledVideoDataset):
+class CVATVideoDataset(VideoLabelsDataset):
     """A labeled dataset consisting of images and their associated object
     detections stored in `CVAT video format <https://github.com/opencv/cvat>`_.
 
@@ -920,11 +989,11 @@ class CVATVideoDataset(LabeledVideoDataset):
                             </attributes>
                         </label>
                         <label>
-                            <name>person</name>
+                            <name>traffic_line</name>
                             <attributes>
                                 <attribute>
-                                    <name>gender</name>
-                                    <values>male\\nfemale</values>
+                                    <name>color</name>
+                                    <values>white\\nyellow</values>
                                 </attribute>
                                 ...
                             </attributes>
@@ -957,14 +1026,30 @@ class CVATVideoDataset(LabeledVideoDataset):
                 </box>
                 ...
             </track>
-            ...
-            <track id="10" label="person">
-                <box frame="45" xtl="300" ytl="25" xbr="375" ybr="400" outside="0" occluded="0", keyframe="1">
-                    <attribute name="gender">female</attribute>
+            <track id="1" label=car">
+                <polygon frame="0" points="561.30,916.23;561.30,842.77;...;560.20,966.67" outside="0" occluded="0", keyframe="1">
+                    <attribute name="make">Honda</attribute>
                     ...
-                </box>
+                </polygon>
                 ...
             </track>
+            ...
+            <track id="10" label="traffic_line">
+                <polyline frame="10" points="462.10,0.00;126.80,1200.00" outside="0" occluded="0", keyframe="1">
+                    <attribute name="color">yellow</attribute>
+                    ...
+                </polyline>
+                ...
+            </track>
+            ...
+            <track id="88" label="wheel">
+                <points frame="176" points="574.90,939.48;1170.16,907.90;...;600.16,459.48" outside="0" occluded="0", keyframe="1">
+                    <attribute name="location">front_driver_side</attribute>
+                    ...
+                </points>
+                ...
+            </track>
+            ...
         </annotations>
 
     Unlabeled videos have no corresponding XML file in ``labels/``.
@@ -1142,7 +1227,7 @@ class BDDDataset(ImageLabelsDataset):
         return foub.BDDDatasetExporter
 
 
-class FiftyOneVideoLabelsDataset(LabeledVideoDataset):
+class FiftyOneVideoLabelsDataset(VideoLabelsDataset):
     """A labeled dataset consisting of videos and their associated labels
     stored in
     `ETA VideoLabels format <https://voxel51.com/docs/api/#types-videolabels>`_.

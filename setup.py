@@ -16,15 +16,15 @@ class BdistWheelCustom(bdist_wheel):
         # make just the wheel require these packages, since they aren't needed
         # for a development installation
         self.distribution.install_requires += [
-            "fiftyone-brain>=0.1.8,<0.2",
-            "fiftyone-gui>=0.6.1,<0.7",
+            "fiftyone-brain>=0.1.9,<0.2",
+            "fiftyone-gui>=0.6.3,<0.7",
             "fiftyone-db>=0.1.1,<0.2",
         ]
 
 
 setup(
     name="fiftyone",
-    version="0.6.1.1",
+    version="0.6.3",
     description=(
         "FiftyOne: a powerful package for dataset curation, analysis, and "
         "visualization"
@@ -58,11 +58,12 @@ setup(
         "python-engineio[client]",
         "python-socketio[client]",
         "retrying",
+        "scikit-image",
         "setuptools",
         "tabulate",
         "xmltodict",
         # internal packages
-        "voxel51-eta>=0.1.7,<0.2",
+        "voxel51-eta>=0.1.10,<0.2",
         # ETA dependency - restricted to a maximum version known to provide
         # wheels here because it tends to publish sdists several hours before
         # wheels. When users install FiftyOne in this window, they will need to

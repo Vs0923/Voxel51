@@ -83,13 +83,10 @@ class FrameNumberField(IntField):
     """A video frame number field."""
 
     def validate(self, value):
-        if not isinstance(value, six.integer_types):
-            self.error("Frame numbers must be integers; found %s" % value)
-
-        if value < 1:
-            self.error(
-                "Frame numbers must be 1-based integers; found %s" % value
-            )
+        try:
+            fofu.validate_frame_number(value)
+        except fofu.FrameError as e:
+            self.error(str(e))
 
 
 class FloatField(mongoengine.FloatField, Field):
@@ -145,6 +142,59 @@ class ListField(mongoengine.ListField, Field):
             )
 
         return etau.get_class_name(self)
+
+
+class KeypointsField(ListField):
+    """A list of ``(x, y)`` coordinate pairs.
+
+    If this field is not set, its default value is ``[]``.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(field=None, **kwargs)
+
+    def __str__(self):
+        return etau.get_class_name(self)
+
+    def validate(self, value):
+        # Only validate value[0], for efficiency
+        if not isinstance(value, (list, tuple)) or (
+            value
+            and (not isinstance(value[0], (list, tuple)) or len(value[0]) != 2)
+        ):
+            self.error("Keypoints fields must contain a list of (x, y) pairs")
+
+
+class PolylinePointsField(ListField):
+    """A list of lists of ``(x, y)`` coordinate pairs.
+
+    If this field is not set, its default value is ``[]``.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(field=None, **kwargs)
+
+    def __str__(self):
+        return etau.get_class_name(self)
+
+    def validate(self, value):
+        # Only validate value[0] and value[0][0], for efficiency
+        if (
+            not isinstance(value, (list, tuple))
+            or (value and not isinstance(value[0], (list, tuple)))
+            or (
+                value
+                and value[0]
+                and (
+                    not isinstance(value[0][0], (list, tuple))
+                    or len(value[0][0]) != 2
+                )
+            )
+        ):
+            self.error(
+                "Polyline points fields must contain a list of lists of "
+                "(x, y) pairs"
+            )
 
 
 class DictField(mongoengine.DictField, Field):
@@ -234,50 +284,6 @@ class ArrayField(mongoengine.fields.BinaryField, Field):
     def validate(self, value):
         if not isinstance(value, (np.ndarray, Binary)):
             self.error("Only numpy arrays may be used in an array field")
-
-
-class ImageLabelsField(Field):
-    """A field that stores an ``eta.core.image.ImageLabels`` instance.
-
-    :class:`ImageLabelsField` instances accept ``eta.core.image.ImageLabels``
-    instances or serialized dict representations of them. The underlying data
-    is stored as a serialized dictionary in the dataset and always retrieved as
-    an ``eta.core.image.ImageLabels`` instance.
-    """
-
-    def to_mongo(self, value):
-        if value is None:
-            return None
-
-        return value.serialize()
-
-    def to_python(self, value):
-        if value is None or isinstance(value, etai.ImageLabels):
-            return value
-
-        return etai.ImageLabels.from_dict(value)
-
-    def validate(self, value):
-        if not isinstance(value, (dict, etai.ImageLabels)):
-            self.error(
-                "Only dicts and `eta.core.image.ImageLabels` instances may be "
-                "used in an ImageLabels field"
-            )
-
-
-class FramesField(mongoengine.fields.MapField, Field):
-    def __init__(self, *args, **kwargs):
-        self._frame_doc_cls = kwargs.pop("frame_doc_cls")
-        super().__init__(
-            mongoengine.fields.ReferenceField(self._frame_doc_cls),
-            db_field="frames",
-        )
-
-    def validate(self, value):
-        try:
-            fofu.is_frame_number(value)
-        except fofu.FrameError as e:
-            self.error(str(e))
 
 
 class EmbeddedDocumentField(mongoengine.EmbeddedDocumentField, Field):
