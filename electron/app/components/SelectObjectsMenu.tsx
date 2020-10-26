@@ -3,6 +3,7 @@ import { useRecoilState, useRecoilValue } from "recoil";
 
 import * as atoms from "../recoil/atoms";
 import * as selectors from "../recoil/selectors";
+import { useShowDialog } from "../utils/dialog";
 import { useFastRerender } from "../utils/hooks";
 import { listSampleObjects } from "../utils/labels";
 import {
@@ -91,6 +92,8 @@ const SelectObjectsMenu = ({ sample, frameNumberRef }) => {
 
   const refresh = useFastRerender();
 
+  const showDialog = useShowDialog();
+
   return (
     <DropdownTag
       name={`${numTotalSelectedObjects} object${
@@ -124,6 +127,15 @@ const SelectObjectsMenu = ({ sample, frameNumberRef }) => {
           name: "Clear selection",
           disabled: !numTotalSelectedObjects,
           action: () => setSelectedObjects({}),
+        },
+        numTotalSelectedObjects && Menu.DIVIDER,
+        numTotalSelectedObjects && {
+          name: "Add attribute...",
+          action: async () => {
+            console.log("showing dialog");
+            const result = await showDialog(<div>Name:</div>);
+            console.log({ result });
+          },
         },
       ].filter(Boolean)}
       menuZIndex={10}

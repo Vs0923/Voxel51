@@ -14,6 +14,7 @@ import { updateState, updateConnected, updateLoading } from "../actions/update";
 import { useHashChangeHandler } from "../utils/hooks";
 import { getSocket, useSubscribe } from "../utils/socket";
 import connect from "../utils/connect";
+import { DialogContextProvider, DialogPlaceholder } from "../utils/dialog";
 import { convertSelectedObjectsListToMap } from "../utils/selection";
 import {
   stateDescription,
@@ -138,32 +139,36 @@ function App(props: Props) {
     >
       <Header />
       <div className={showInfo ? "" : "hide-info"} style={bodyStyle}>
-        {children}
-        <Modal
-          trigger={
-            <Button
-              style={{ padding: "1rem", display: "none" }}
-              ref={portRef}
-            ></Button>
-          }
-          size="tiny"
-          onClose={() => {
-            dispatch(updatePort(result.port));
-            setSocket(getSocket(result.port, "state"));
-          }}
-        >
-          <Modal.Header>Port number</Modal.Header>
-          <Modal.Content>
-            <Modal.Description>
-              <PortForm
-                setResult={setResultFromForm}
-                connected={connected}
-                port={port}
-                invalid={false}
-              />
-            </Modal.Description>
-          </Modal.Content>
-        </Modal>
+        <DialogContextProvider>
+          {children}
+          <DialogPlaceholder />
+          {/* todo: migrate modal below to dialog */}
+          <Modal
+            trigger={
+              <Button
+                style={{ padding: "1rem", display: "none" }}
+                ref={portRef}
+              ></Button>
+            }
+            size="tiny"
+            onClose={() => {
+              dispatch(updatePort(result.port));
+              setSocket(getSocket(result.port, "state"));
+            }}
+          >
+            <Modal.Header>Port number</Modal.Header>
+            <Modal.Content>
+              <Modal.Description>
+                <PortForm
+                  setResult={setResultFromForm}
+                  connected={connected}
+                  port={port}
+                  invalid={false}
+                />
+              </Modal.Description>
+            </Modal.Content>
+          </Modal>
+        </DialogContextProvider>
       </div>
       <NotificationHub children={(add) => (addNotification.current = add)} />
     </ErrorBoundary>
