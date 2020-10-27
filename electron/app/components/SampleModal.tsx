@@ -168,11 +168,6 @@ const Container = styled(ModalBody)`
       vertical-align: middle;
     }
   }
-
-  .select-objects-wrapper {
-    margin-top: 1em;
-    margin-bottom: -1em;
-  }
 `;
 
 const TopRightNavButtonsContainer = styled.div`
@@ -324,6 +319,8 @@ const SampleModal = ({
     }
   });
 
+  // store in a ref to avoid re-rendering this component when the frame number
+  // changes
   const frameNumberRef = useRef(null);
   useEventHandler(playerRef.current, "timeupdate", (e) => {
     frameNumberRef.current = e.data.frame_number;
@@ -495,12 +492,6 @@ const SampleModal = ({
       </div>
       <div className="sidebar">
         <div className="sidebar-content">
-          <div className="select-objects-wrapper">
-            <SelectObjectsMenu
-              sample={sample}
-              frameNumberRef={frameNumberRef}
-            />
-          </div>
           <h2>
             Metadata
             <span className="push-right" />
@@ -546,6 +537,14 @@ const SampleModal = ({
               overflowY: "auto",
               overflowX: "hidden",
               height: "auto",
+            }}
+            headerContent={{
+              labels: (
+                <SelectObjectsMenu
+                  sample={sample}
+                  frameNumberRef={frameNumberRef}
+                />
+              ),
             }}
             modal={true}
           />
