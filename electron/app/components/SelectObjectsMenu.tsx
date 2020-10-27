@@ -134,7 +134,9 @@ const SelectObjectsMenu = ({ sample, frameNumberRef }) => {
           name: "Add attribute...",
           action: async () => {
             console.log("showing dialog");
-            const result = await showDialog(<AddObjectAttributeDialog />);
+            const result = await showDialog(
+              <AddObjectAttributeDialog numObjects={numTotalSelectedObjects} />
+            );
             console.log({ result });
           },
         },

@@ -1,11 +1,18 @@
 import React, { useContext } from "react";
 
 import BaseDialog from "./Base";
-import { CurrentDialogContext } from "../../utils/dialog";
 
-const AddObjectAttributeDialog = () => {
-  const { close } = useContext(CurrentDialogContext);
-  return <BaseDialog title="Add attribute">add</BaseDialog>;
+const AddObjectAttributeDialog = ({ numObjects = "" }) => {
+  return (
+    <BaseDialog
+      title={`Add attribute to ${numObjects} object${
+        numObjects == 1 ? "" : "s"
+      }`}
+      value={numObjects}
+    >
+      some text
+    </BaseDialog>
+  );
 };
 
 export default AddObjectAttributeDialog;
