@@ -1,6 +1,7 @@
 import React, { useContext, useState } from "react";
 
 import { ModalWrapper, Overlay } from "../components/utils";
+import { useKeydownHandler } from "../utils/hooks";
 
 export const DialogContext = React.createContext();
 DialogContext.displayName = "DialogContext";
@@ -18,6 +19,12 @@ export const DialogContextProvider = ({ children }) => {
 
 export const DialogPlaceholder = ({}) => {
   const [dialogs] = useContext(DialogContext);
+  useKeydownHandler((e) => {
+    if (e.key == "Escape" && dialogs.length) {
+      dialogs.slice(-1)[0].context.close();
+      e.stopImmediatePropagation();
+    }
+  });
   return dialogs.map(({ node, context }, i) => (
     <CurrentDialogContext.Provider value={context} key={i}>
       <ModalWrapper>
