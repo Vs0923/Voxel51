@@ -17,24 +17,11 @@ export const DialogContextProvider = ({ children }) => {
 };
 
 export const DialogPlaceholder = ({}) => {
-  const [dialogs, setDialogs] = useContext(DialogContext);
-  if (!dialogs.length) {
-    return null;
-  }
+  const [dialogs] = useContext(DialogContext);
   return dialogs.map(({ node, context }, i) => (
     <CurrentDialogContext.Provider value={context} key={i}>
       <ModalWrapper>
-        <Overlay
-          onClick={() =>
-            setDialogs((dialogs) => {
-              const top = dialogs.slice(-1)[0];
-              if (top && top.context.close) {
-                top.context.close();
-              }
-              return dialogs.slice(0, -1);
-            })
-          }
-        />
+        <Overlay onClick={() => context.close()} />
         {node}
       </ModalWrapper>
     </CurrentDialogContext.Provider>
@@ -45,8 +32,20 @@ export const useShowDialog = () => {
   const [_, setDialogs] = useContext(DialogContext);
   return async (newDialog) => {
     const dialog = { node: newDialog, context: {} };
-    dialog.context.close = () => dialog.resolve(null);
-    dialog.context.submit = (value) => dialog.resolve(value);
+
+    const close = (value = null) => {
+      setDialogs(([...dialogs]) => {
+        // remove from copy of list, return copy
+        if (dialogs.includes(dialog)) {
+          dialogs.splice(dialogs.indexOf(dialog), 1);
+        }
+        return dialogs;
+      });
+      dialog.resolve(value);
+    };
+
+    dialog.context.close = () => close();
+    dialog.context.submit = close;
 
     setDialogs((dialogs) => [...dialogs, dialog]);
     return new Promise((resolve, reject) => {
