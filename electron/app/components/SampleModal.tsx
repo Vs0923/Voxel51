@@ -8,7 +8,12 @@ import DisplayOptionsSidebar from "./DisplayOptionsSidebar";
 import JSONView from "./JSONView";
 import Player51 from "./Player51";
 import SelectObjectsMenu from "./SelectObjectsMenu";
-import { Button, ModalFooter } from "./utils";
+import {
+  Button,
+  ModalBody,
+  ModalFooter,
+  ModalTopButtonContainer,
+} from "./utils";
 import * as selectors from "../recoil/selectors";
 import * as atoms from "../recoil/atoms";
 import { getSocket } from "../utils/socket";
@@ -31,12 +36,11 @@ type Props = {
   sampleUrl: string;
 };
 
-const Container = styled.div`
+const Container = styled(ModalBody)`
   display: grid;
   grid-template-columns: auto 280px;
   width: 90vw;
   height: 80vh;
-  background-color: ${({ theme }) => theme.background};
 
   &.fullscreen {
     width: 100vw;
@@ -183,29 +187,11 @@ const TopRightNavButtons = ({ children }) => {
   return <TopRightNavButtonsContainer>{children}</TopRightNavButtonsContainer>;
 };
 
-const TopRightNavButtonContainer = styled.div`
-  display: block;
-  background-color: ${({ theme }) => theme.overlayButton};
-  cursor: pointer;
-  font-size: 150%;
-  font-weight: bold;
-  user-select: none;
-  width: 2em;
-  margin-top: 0;
-  height: 2em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  &:hover {
-    background-color: ${({ theme }) => theme.overlayButtonHover};
-  }
-`;
-
 const TopRightNavButton = ({ icon, title, onClick, ...rest }) => {
   return (
-    <TopRightNavButtonContainer title={title} onClick={onClick} {...rest}>
+    <ModalTopButtonContainer title={title} onClick={onClick} {...rest}>
       {icon}
-    </TopRightNavButtonContainer>
+    </ModalTopButtonContainer>
   );
 };
 

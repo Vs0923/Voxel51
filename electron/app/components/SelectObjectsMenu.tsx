@@ -16,6 +16,7 @@ import { getSocket } from "../utils/socket";
 
 import Menu from "./Menu";
 import DropdownTag from "./Tags/DropdownTag";
+import AddObjectAttributeDialog from "./Dialogs/AddObjectAttribute";
 
 const _addFrameNumberToObjects = (objects, frame_number) =>
   objects.map((obj) => ({ ...obj, frame_number }));
@@ -133,7 +134,7 @@ const SelectObjectsMenu = ({ sample, frameNumberRef }) => {
           name: "Add attribute...",
           action: async () => {
             console.log("showing dialog");
-            const result = await showDialog(<div>Name:</div>);
+            const result = await showDialog(<AddObjectAttributeDialog />);
             console.log({ result });
           },
         },

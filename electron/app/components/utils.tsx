@@ -59,6 +59,32 @@ export const ModalWrapper = styled.div`
   }
 `;
 
+export const ModalBody = styled.div`
+  position: relative;
+  width: 50vw;
+  height: auto;
+  min-height: 5em;
+  background-color: ${({ theme }) => theme.background};
+`;
+
+export const ModalTopButtonContainer = styled.div`
+  display: block;
+  background-color: ${({ theme }) => theme.overlayButton};
+  cursor: pointer;
+  font-size: 150%;
+  font-weight: bold;
+  user-select: none;
+  width: 2em;
+  margin-top: 0;
+  height: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  &:hover {
+    background-color: ${({ theme }) => theme.overlayButtonHover};
+  }
+`;
+
 export const ModalFooter = styled.footer`
   display: flex;
   flex-shrink: 0;
