@@ -14,9 +14,11 @@ import string
 import eta.core.serial as etas
 import eta.core.utils as etau
 
+from fiftyone.core.aggregations import Aggregation
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
+from fiftyone.core.odm.frame import DatasetFrameSampleDocument
 from fiftyone.core.odm.sample import (
     DatasetSampleDocument,
     default_sample_fields,
@@ -104,6 +106,65 @@ class SampleCollection(object):
         underlying the collection.
         """
         raise NotImplementedError("Subclass must implement info")
+
+    def aggregate(self, aggregations):
+        """Aggregates one or more
+        :class:`fiftyone.core.aggregations.Aggregation` instances.
+
+        Note that it is best practice to group aggregations into a single call
+        to :meth:`aggregate() <aggregate>`, as this will be more efficient than
+        performing multiple aggregations in series.
+
+        Args:
+            aggregations: an :class:`fiftyone.core.aggregations.Aggregation` or
+                iterable of :class:`<fiftyone.core.aggregations.Aggregation>`
+                instances
+
+        Returns:
+            an :class:`fiftyone.core.aggregations.AggregationResult` or list of
+            :class:`fiftyone.core.aggregations.AggregationResult` instances
+            corresponding to the input aggregations
+        """
+        scalar_result = isinstance(aggregations, Aggregation)
+        if scalar_result:
+            aggregations = [aggregations]
+        elif len(aggregations) == 0:
+            return []
+
+        # pylint: disable=no-member
+        schema = self.get_field_schema()
+        if self.media_type == fom.VIDEO:
+            frame_schema = self.get_frame_field_schema()
+        else:
+            frame_schema = None
+
+        pipelines = {}
+        for agg in aggregations:
+            if not isinstance(agg, Aggregation):
+                raise TypeError("'%s' is not a an Aggregation" % agg.__class__)
+
+            field = agg._get_output_field(self)
+            pipelines[field] = agg._to_mongo(
+                self._dataset, schema, frame_schema
+            )
+
+        result_d = {}
+        try:
+            # pylint: disable=no-member
+            result_d = next(self._aggregate([{"$facet": pipelines}]))
+        except StopIteration:
+            pass
+
+        results = []
+        for agg in aggregations:
+            try:
+                results.append(
+                    agg._get_result(result_d[agg._get_output_field(self)][0])
+                )
+            except:
+                results.append(agg._get_default_result())
+
+        return results[0] if scalar_result else results
 
     def summary(self):
         """Returns a string summary of the collection.
@@ -264,6 +325,16 @@ class SampleCollection(object):
         if etau.is_str(field_or_fields):
             field_or_fields = [field_or_fields]
 
+        if self.media_type == fom.VIDEO:
+            frame_fields = list(
+                filter(lambda n: n.startswith("frames."), field_or_fields)
+            )
+            field_or_fields = list(
+                filter(lambda n: not n.startswith("frames."), field_or_fields)
+            )
+        else:
+            frame_fields = []
+
         schema = self.get_field_schema(include_private=True)
         default_fields = set(
             default_sample_fields(
@@ -274,6 +345,26 @@ class SampleCollection(object):
             # We only validate that the root field exists
             field_name = field.split(".", 1)[0]
             if field_name not in schema and field_name not in default_fields:
+                raise ValueError("Field '%s' does not exist" % field_name)
+
+        if self.media_type != fom.VIDEO:
+            return
+
+        frame_schema = self.get_frame_field_schema(include_private=True)
+        default_frame_fields = set(
+            default_sample_fields(
+                DatasetFrameSampleDocument,
+                include_private=True,
+                include_id=True,
+            )
+        )
+        for field in frame_fields:
+            # We only validate that the root field exists
+            field_name = field.split(".", 2)[1]
+            if (
+                field_name not in frame_schema
+                and field_name not in default_frame_fields
+            ):
                 raise ValueError("Field '%s' does not exist" % field_name)
 
     def validate_field_type(
@@ -304,14 +395,13 @@ class SampleCollection(object):
         if frames:
             field_name = field_name[len("frames.") :]
 
-        frame_schema = self.get_frame_field_schema()
-        if not frames and field_name not in schema:
-            raise ValueError("Field '%s' does not exist" % field_name)
-
-        if frames and field_name not in frame_schema:
-            raise ValueError("Field '%s' does not exist" % field_name)
-
-        field = frame_schema[field_name] if frames else schema[field_name]
+        if frames:
+            frame_schema = self.get_frame_field_schema()
+            if field_name not in frame_schema:
+                raise ValueError("Field '%s' does not exist" % field_name)
+            field = frame_schema[field_name]
+        else:
+            field = schema[field_name]
 
         if embedded_doc_type is not None:
             if not isinstance(field, fof.EmbeddedDocumentField) or (
@@ -458,6 +548,48 @@ class SampleCollection(object):
         return self._add_view_stage(fos.ExcludeFields(field_names))
 
     @view_stage
+    def exclude_objects(self, objects):
+        """Excludes the specified objects from the view.
+
+        The returned view will omit the objects specified in the provided
+        ``objects`` argument, which should have the following format::
+
+            [
+                {
+                    "sample_id": "5f8d254a27ad06815ab89df4",
+                    "field": "ground_truth",
+                    "object_id": "5f8d254a27ad06815ab89df3",
+                },
+                {
+                    "sample_id": "5f8d255e27ad06815ab93bf8",
+                    "field": "ground_truth",
+                    "object_id": "5f8d255e27ad06815ab93bf6",
+                },
+                ...
+            ]
+
+        Examples::
+
+            import fiftyone as fo
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Exclude the objects currently selected in the App
+            #
+
+            session = fo.launch_app(dataset)
+
+            # Select some objects in the App...
+
+            view = dataset.exclude_objects(session.selected_objects)
+
+        Args:
+            objects: a list of dicts specifying the objects to exclude
+        """
+        return self._add_view_stage(fos.ExcludeObjects(objects))
+
+    @view_stage
     def exists(self, field, bool=True):
         """Returns a view containing the samples that have (or do not have) a
         non-``None`` value for the given field.
@@ -494,7 +626,7 @@ class SampleCollection(object):
 
     @view_stage
     def filter_field(self, field, filter, only_matches=False):
-        """Filters the values of the given field of the samples.
+        """Filters the values of a given sample (or embedded document) field.
 
         Values of ``field`` for which ``filter`` returns ``False`` are
         replaced with ``None``.
@@ -534,6 +666,153 @@ class SampleCollection(object):
         """
         return self._add_view_stage(
             fos.FilterField(field, filter, only_matches=only_matches)
+        )
+
+    @view_stage
+    def filter_labels(self, field, filter, only_matches=False):
+        """Filters the :class:`fiftyone.core.labels.Label` elements in a labels
+        list field of each sample.
+
+        The specified ``field`` must be one of the following types:
+
+        -   :class:`fiftyone.core.labels.Classifications`
+        -   :class:`fiftyone.core.labels.Detections`
+        -   :class:`fiftyone.core.labels.Polylines`
+        -   :class:`fiftyone.core.labels.Keypoints`
+
+        Classifications Examples::
+
+            import fiftyone as fo
+            from fiftyone import ViewField as F
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include classifications in the `predictions` field whose
+            # `confidence` greater than 0.8
+            #
+
+            view = dataset.filter_labels("predictions", F("confidence") > 0.8)
+
+            #
+            # Only include classifications in the `predictions` field whose
+            # `label` is "cat" or "dog", and only show samples with at least
+            # one classification after filtering
+            #
+
+            view = dataset.filter_labels(
+                "predictions",
+                F("label").is_in(["cat", "dog"]),
+                only_matches=True,
+            )
+
+        Detections Examples::
+
+            import fiftyone as fo
+            from fiftyone import ViewField as F
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include detections in the `predictions` field whose
+            # `confidence` is greater than 0.8
+            #
+
+            stage = filter_labels("predictions", F("confidence") > 0.8)
+            view = dataset.add_stage(stage)
+
+            #
+            # Only include detections in the `predictions` field whose `label`
+            # is "cat" or "dog", and only show samples with at least one
+            # detection after filtering
+            #
+
+            view = dataset.filter_labels(
+                "predictions",
+                F("label").is_in(["cat", "dog"]),
+                only_matches=True,
+            )
+
+            #
+            # Only include detections in the `predictions` field whose bounding
+            # box area is smaller than 0.2
+            #
+
+            # bbox is in [top-left-x, top-left-y, width, height] format
+            bbox_area = F("bounding_box")[2] * F("bounding_box")[3]
+
+            view = dataset.filter_labels("predictions", bbox_area < 0.2)
+
+        Polylines Examples::
+
+            import fiftyone as fo
+            from fiftyone import ViewField as F
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include polylines in the `predictions` field that are filled
+            #
+
+            view = dataset.filter_labels("predictions", F("filled"))
+
+            #
+            # Only include polylines in the `predictions` field whose `label`
+            # is "lane", and only show samples with at least one polyline after
+            # filtering
+            #
+
+            view = dataset.filter_labels(
+                "predictions", F("label") == "lane", only_matches=True
+            )
+
+            #
+            # Only include polylines in the `predictions` field with at least
+            # 10 vertices
+            #
+
+            num_vertices = F("points").map(F().length()).sum()
+            view = dataset.filter_labels("predictions", num_vertices >= 10)
+
+        Keypoints Examples::
+
+            import fiftyone as fo
+            from fiftyone import ViewField as F
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include keypoints in the `predictions` field whose `label`
+            # is "face", and only show samples with at least one keypoint after
+            # filtering
+            #
+
+            view = dataset.filter_labels(
+                "predictions", F("label") == "face", only_matches=True
+            )
+
+            #
+            # Only include keypoints in the `predictions` field with at least
+            # 10 points
+            #
+
+            view = dataset.filter_labels(
+                "predictions", F("points").length() >= 10
+            )
+
+        Args:
+            field: the labels list field to filter
+            filter: a :class:`fiftyone.core.expressions.ViewExpression` or
+                `MongoDB expression <https://docs.mongodb.com/manual/meta/aggregation-quick-reference/#aggregation-expressions>`_
+                that returns a boolean describing the filter to apply
+            only_matches (False): whether to only include samples with at least
+                one label after filtering
+
+        Returns:
+            a :class:`fiftyone.core.view.DatasetView`
+        """
+        return self._add_view_stage(
+            fos.FilterLabels(field, filter, only_matches=only_matches)
         )
 
     @view_stage
@@ -778,6 +1057,38 @@ class SampleCollection(object):
         return self._add_view_stage(fos.Limit(limit))
 
     @view_stage
+    def limit_labels(self, field, limit):
+        """Limits the number of :class:`fiftyone.core.labels.Label` instances
+        in the specified labels list field of each sample.
+
+        The specified ``field`` must be one of the following types:
+
+        -   :class:`fiftyone.core.labels.Classifications`
+        -   :class:`fiftyone.core.labels.Detections`
+        -   :class:`fiftyone.core.labels.Polylines`
+        -   :class:`fiftyone.core.labels.Keypoints`
+
+        Examples::
+
+            import fiftyone as fo
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include the first 5 detections in the `ground_truth` field of
+            # the view
+            #
+
+            view = dataset.limit_labels("ground_truth", 5)
+
+        Args:
+            field: the labels list field to filter
+            limit: the maximum number of labels to include in each labels list.
+                If a non-positive number is provided, all lists will be empty
+        """
+        return self._add_view_stage(fos.LimitLabels(field, limit))
+
+    @view_stage
     def match(self, filter):
         """Filters the samples in the collection by the given filter.
 
@@ -1008,6 +1319,49 @@ class SampleCollection(object):
             a :class:`DatasetView`
         """
         return self._add_view_stage(fos.SelectFields(field_names))
+
+    @view_stage
+    def select_objects(self, objects):
+        """Selects only the specified objects from the view.
+
+        The returned view will omit samples, sample fields, and individual
+        objects that do not appear in the provided ``objects`` argument, which
+        should have the following format::
+
+            [
+                {
+                    "sample_id": "5f8d254a27ad06815ab89df4",
+                    "field": "ground_truth",
+                    "object_id": "5f8d254a27ad06815ab89df3",
+                },
+                {
+                    "sample_id": "5f8d255e27ad06815ab93bf8",
+                    "field": "ground_truth",
+                    "object_id": "5f8d255e27ad06815ab93bf6",
+                },
+                ...
+            ]
+
+        Examples::
+
+            import fiftyone as fo
+
+            dataset = fo.load_dataset(...)
+
+            #
+            # Only include the objects currently selected in the App
+            #
+
+            session = fo.launch_app(dataset)
+
+            # Select some objects in the App...
+
+            view = dataset.select_objects(session.selected_objects)
+
+        Args:
+            objects: a list of dicts specifying the objects to select
+        """
+        return self._add_view_stage(fos.SelectObjects(objects))
 
     @view_stage
     def shuffle(self, seed=None):
@@ -1378,18 +1732,6 @@ class SampleCollection(object):
         """
         raise NotImplementedError("Subclass must implement make_index()")
 
-    def aggregate(self, pipeline=None):
-        """Calls the collection's current MongoDB aggregation pipeline.
-
-        Args:
-            pipeline (None): an optional aggregation pipeline (list of dicts)
-                to append to the collections's pipeline before calling it
-
-        Returns:
-            an iterable over the aggregation result
-        """
-        raise NotImplementedError("Subclass must implement aggregate()")
-
     def to_dict(self, rel_dir=None):
         """Returns a JSON dictionary representation of the collection.
 
@@ -1500,6 +1842,41 @@ class SampleCollection(object):
                 a valid stage for this collection
         """
         raise NotImplementedError("Subclass must implement _add_view_stage()")
+
+    def _aggregate(
+        self, pipeline=None, hide_frames=False, squash_frames=False
+    ):
+        """Runs the MongoDB aggregation pipeline on the collection and returns
+        the result.
+
+        Args:
+            pipeline (None): a MongoDB aggregation pipeline (list of dicts)
+            hide_frames (False): whether to hide frames in the result
+            squash_frames (False): whether to squash frames in the result
+
+        Returns:
+            the aggregation result dict
+        """
+        raise NotImplementedError("Subclass must implement _aggregate()")
+
+    def _attach_frames(self, hide_frames=False):
+        key = "_frames" if hide_frames else "frames"
+
+        # pylint: disable=no-member
+        return [
+            {
+                "$lookup": {
+                    "from": self._frame_collection_name,
+                    "localField": "_id",
+                    "foreignField": "_sample_id",
+                    "as": key,
+                }
+            }
+        ]
+
+    def _serialize(self):
+        # pylint: disable=no-member
+        return self._doc.to_dict(extended=True)
 
     def _serialize_field_schema(self):
         return self._serialize_schema(self.get_field_schema())
