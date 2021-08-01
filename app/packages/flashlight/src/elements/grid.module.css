@@ -1,0 +1,27 @@
+/**
+ * Copyright 2017-2021, Voxel51, Inc.
+ */
+.flashlightGridContainer {
+  position: relative;
+  width: 100%;
+  contain: strict style;
+  height: 100%;
+  overflow: auto;
+}
+
+.flashlightGrid {
+  width: 100%;
+  position: relative;
+  contain: strict;
+}
+
+.flashlightSection {
+  display: block;
+  position: absolute;
+  contain: strict style;
+}
+
+.flashlightSection > div {
+  position: absolute;
+  contain: strict style;
+}

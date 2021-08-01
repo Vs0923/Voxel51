@@ -4,7 +4,7 @@
 
 import { mergeWith } from "immutable";
 
-import { MIN_PIXELS, SCALE_FACTOR } from "./constants";
+import { MIN_PIXELS } from "./constants";
 import {
   BaseState,
   BoundingBox,

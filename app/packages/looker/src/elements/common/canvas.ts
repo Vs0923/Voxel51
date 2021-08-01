@@ -4,7 +4,7 @@
 
 import { SCALE_FACTOR } from "../../constants";
 import { BaseState, Coordinates, Optional } from "../../state";
-import { clampScale } from "../../util";
+import { clampScale } from "../../utils";
 import { BaseElement, Events } from "../base";
 import { dispatchTooltipEvent } from "./util";
 

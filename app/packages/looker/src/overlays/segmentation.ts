@@ -5,7 +5,7 @@
 import { getSegmentationColorArray } from "../color";
 import { NumpyResult } from "../numpy";
 import { BaseState, Coordinates } from "../state";
-import { ensureCanvasSize } from "../util";
+import { ensureCanvasSize } from "../utils";
 import { BaseLabel, CONTAINS, Overlay, PointInfo, SelectData } from "./base";
 import { sizeBytes, t } from "./util";
 

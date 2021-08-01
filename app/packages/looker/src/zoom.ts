@@ -9,7 +9,7 @@ import {
   ImageState,
   VideoState,
 } from "./state";
-import { getContainingBox, mergeUpdates, snapBox } from "./util";
+import { getContainingBox, mergeUpdates, snapBox } from "./utils";
 
 const adjustBox = (
   [w, h]: Dimensions,

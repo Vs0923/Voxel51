@@ -5,7 +5,7 @@
 import { CONTAINS, Overlay } from "./overlays/base";
 import ClassificationsOverlay from "./overlays/classifications";
 import { BaseState } from "./state";
-import { rotate } from "./util";
+import { rotate } from "./utils";
 
 const processOverlays = <State extends BaseState>(
   state: State,

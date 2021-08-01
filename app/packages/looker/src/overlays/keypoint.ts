@@ -4,7 +4,7 @@
 
 import { DASH_COLOR, TOLERANCE } from "../constants";
 import { BaseState, Coordinates } from "../state";
-import { distance } from "../util";
+import { distance } from "../utils";
 import { CONTAINS, CoordinateOverlay, PointInfo, RegularLabel } from "./base";
 import { t } from "./util";
 

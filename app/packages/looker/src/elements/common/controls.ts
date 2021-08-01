@@ -4,7 +4,7 @@
 
 import { BaseState } from "../../state";
 import { BaseElement, Events } from "../base";
-import { ICONS } from "../util";
+import { ICONS } from "../utils";
 import {
   fullscreen,
   help,

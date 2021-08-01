@@ -1,0 +1,61 @@
+/**
+ * Copyright 2017-2021, Voxel51, Inc.
+ */
+
+.flashlightScrubber {
+  display: block;
+  height: 100%;
+  overflow: visible;
+  cursor: pointer;
+  position: relative;
+}
+
+.flashlightBar {
+  -webkit-user-select: none; /* Chrome all / Safari all */
+  -moz-user-select: none; /* Firefox all */
+  -ms-user-select: none; /* IE 10+ */
+  user-select: none;
+  --progress: 0%;
+  width: 100%;
+  pointer-events: none;
+  cursor: pointer;
+  position: absolute;
+  background: rgb(225, 100, 40);
+  box-shadow: 0 8px 15px 0 rgba(0, 0, 0, 0.43);
+  height: 3px;
+
+  transition: all 0.1s linear;
+  top: var(--progress, 0px);
+}
+
+.flashlightPeek {
+  -webkit-user-select: none; /* Chrome all / Safari all */
+  -moz-user-select: none; /* Firefox all */
+  -ms-user-select: none; /* IE 10+ */
+  user-select: none;
+  pointer-events: none;
+  --peek: 0%;
+  right: 0;
+  position: absolute;
+  transition: all 0.1s linear;
+  height: 0;
+  width: 0;
+  background: hsl(211, 85%, 92%);
+  top: var(--peek, 0px);
+}
+
+.flashlightScrubber:hover .flashlightPeek {
+  height: 2px;
+  width: 100%;
+  background: hsl(211, 85%, 92%);
+}
+
+.flashlightBar:hover {
+  height: 6px;
+  width: 24px;
+}
+
+.flashlightScrubberDisabled > div {
+  height: 0;
+  visibility: hidden;
+}

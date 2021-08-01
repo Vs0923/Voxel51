@@ -10,9 +10,9 @@ import {
   StateUpdate,
   VideoState,
 } from "../../state";
-import { clampScale } from "../../util";
+import { clampScale } from "../../utils";
 import { BaseElement, Events } from "../base";
-import { getFrameNumber } from "../util";
+import { getFrameNumber } from "../utils";
 
 import {
   lookerHelpPanelItems,

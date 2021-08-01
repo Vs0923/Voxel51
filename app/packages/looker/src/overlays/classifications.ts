@@ -4,7 +4,7 @@
 
 import { DASH_COLOR, TEXT_COLOR } from "../constants";
 import { BaseState, BoundingBox, Coordinates } from "../state";
-import { getRenderedScale } from "../util";
+import { getRenderedScale } from "../utils";
 import {
   CONTAINS,
   isShown,

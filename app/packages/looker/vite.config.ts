@@ -10,9 +10,4 @@ export default <UserConfig>{
     target: "es2015",
     minify: false,
   },
-  resolve: {
-    alias: {
-      "@fiftyone/looker": "@fiftyone/looker/src/index.ts",
-    },
-  },
 };

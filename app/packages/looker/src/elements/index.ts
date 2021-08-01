@@ -12,7 +12,7 @@ import {
   StateUpdate,
   VideoState,
 } from "../state";
-import { createElementsTree, withEvents } from "./util";
+import { createElementsTree, withEvents } from "./utils";
 import * as video from "./video";
 
 export type GetElements<State extends BaseState> = (
@@ -35,10 +35,10 @@ export const getFrameElements: GetElements<FrameState> = (
       {
         node: common.CanvasElement,
       },
+      { node: common.TagsElement },
       {
         node: common.ThumbnailSelectorElement,
       },
-      { node: common.TagsElement },
       {
         node: common.JSONPanelElement,
       },
@@ -99,10 +99,10 @@ export const getImageElements: GetElements<ImageState> = (
       {
         node: common.CanvasElement,
       },
+      { node: common.TagsElement },
       {
         node: common.ThumbnailSelectorElement,
       },
-      { node: common.TagsElement },
       {
         node: common.JSONPanelElement,
       },
@@ -163,10 +163,10 @@ export const getVideoElements: GetElements<VideoState> = (
       {
         node: common.CanvasElement,
       },
+      { node: common.TagsElement },
       {
         node: common.ThumbnailSelectorElement,
       },
-      { node: common.TagsElement },
       {
         node: common.JSONPanelElement,
       },

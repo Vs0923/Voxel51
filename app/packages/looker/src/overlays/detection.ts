@@ -12,7 +12,7 @@ import {
 
 import { NumpyResult } from "../numpy";
 import { BaseState, BoundingBox, Coordinates } from "../state";
-import { distanceFromLineSegment } from "../util";
+import { distanceFromLineSegment } from "../utils";
 import { CONTAINS, CoordinateOverlay, PointInfo, RegularLabel } from "./base";
 import { t } from "./util";
 

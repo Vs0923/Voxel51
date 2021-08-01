@@ -4,7 +4,7 @@
 
 import { FrameState } from "../state";
 import { BaseElement, Events } from "./base";
-import { getFrameString, getTime } from "./util";
+import { getFrameString, getTime } from "./utils";
 
 import { lookerTime } from "./common/controls.module.css";
 

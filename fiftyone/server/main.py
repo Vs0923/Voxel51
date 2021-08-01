@@ -255,6 +255,33 @@ class PageHandler(tornado.web.RequestHandler):
         self.write({"results": results, "more": more})
 
 
+class CountHandler(tornado.web.RequestHandler):
+    """Count request"""
+
+    def set_default_headers(self, *args, **kwargs):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.set_header("x-colab-notebook-cache-control", "no-cache")
+
+    async def get(self):
+        state = fos.StateDescription.from_dict(StateHandler.state)
+        if state.view is not None:
+            view = state.view
+        elif state.dataset is not None:
+            view = state.dataset
+        else:
+            self.write({"results": [], "more": False})
+            return
+
+        view = get_extended_view(view, state.filters)
+
+        count = await view._async_aggregate(
+            StateHandler.sample_collection(), [foa.Count()]
+        )[0]
+        self.write({"count": count})
+
+
 class TeamsHandler(RequestHandler):
     """Returns whether the teams button should be minimized"""
 

@@ -2,118 +2,119 @@
  * Copyright 2017-2021, Voxel51, Inc.
  */
 
-import { NUM_ROWS_PER_SECTION } from "./constants";
-import SectionElement from "./section";
+import { mergeUpdates, StateUpdate } from "@fiftyone/utils";
+
+import { MARGIN, SCRUBBER_WIDTH } from "./constants";
+import { FlashlightElement } from "./elements/flashlight";
+import { getFlashlightElements } from "./elements";
 import {
-  Get,
-  ItemData,
-  OnItemClick,
-  OnResize,
-  OnItemResize,
+  Config,
+  DEFAULT_OPTIONS,
+  DIRECTION,
   Optional,
   Options,
-  Render,
-  RowData,
   State,
 } from "./state";
 
-import { flashlight, flashlightPixels } from "./styles.module.css";
-import tile from "./tile";
-import { argMin } from "./util";
-
 export interface FlashlightOptions extends Optional<Options> {}
 
-export interface FlashlightConfig<K> {
-  get: Get<K>;
-  render: Render;
-  initialRequestKey: K;
-  options: FlashlightOptions;
-  onItemClick?: OnItemClick;
-  onResize?: OnResize;
-  onItemResize?: OnItemResize;
-}
+export default class Flashlight {
+  private eventTarget: EventTarget = new EventTarget();
+  private flashlight: FlashlightElement;
+  private state: State;
+  private updater: StateUpdate<State>;
 
-export default class Flashlight<K> {
-  private loading: boolean = false;
-  private container: HTMLDivElement = document.createElement("div");
-  private state: State<K>;
-  private resizeObserver: ResizeObserver;
-  private readonly config: FlashlightConfig<K>;
-  private lastScrollTop: number;
-  private lastRender: number;
-  private pixelsSet: boolean;
-  private ctx: number = 0;
-
-  constructor(config: FlashlightConfig<K>) {
-    this.config = config;
-    this.container.classList.add(flashlight);
-    this.showPixels();
-    this.state = this.getEmptyState(config);
-
-    let attached = false;
-
-    let animation = null;
-
-    this.resizeObserver = new ResizeObserver(
-      ([
-        {
-          contentRect: { width, height },
-        },
-      ]: ResizeObserverEntry[]) => {
-        this.state.containerHeight = height;
-        if (!attached) {
-          attached = true;
-          return;
-        }
-
-        typeof animation === "number" && cancelAnimationFrame(animation);
-        animation = requestAnimationFrame(() => {
-          const options =
-            this.state.width !== width && this.state.onResize
-              ? this.state.onResize(width)
-              : {};
-
-          const force = this.state.width !== width;
-          this.state.width = width;
-
-          this.updateOptions(options, force);
-          animation = null;
-        });
-      }
+  constructor(config: Config, options: Optional<Options>) {
+    this.state = this.getEmptyState(config, options);
+    this.updater = this.makeUpdater();
+    this.flashlight = getFlashlightElements(
+      config,
+      this.updater,
+      this.dispatchEvent
     );
   }
 
+  private dispatchEvent(eventType: string, detail: any): void {
+    this.eventTarget.dispatchEvent(new CustomEvent(eventType, { detail }));
+  }
+
+  private makeUpdater(): StateUpdate<State> {
+    return (stateOrUpdater) => {
+      const updates =
+        stateOrUpdater instanceof Function
+          ? stateOrUpdater(this.state)
+          : stateOrUpdater;
+      if (Object.keys(updates).length === 0) {
+        return;
+      }
+
+      this.state = mergeUpdates(this.state, updates);
+      this.state.derived.height = this.height;
+      console.log(this.height);
+
+      this.flashlight.render(this.state);
+    };
+  }
+
+  get attached() {
+    return Boolean(this.flashlight.element.parentElement);
+  }
+
+  private get height(): number {
+    const knownHeight = this.state.chunks.reduce(
+      (acc, { height }) => acc + height,
+      0
+    );
+
+    return (
+      knownHeight +
+      (this.numPages - this.state.pages.size) * this.unknownPageHeight
+    );
+  }
+
+  private get numPages(): number | null {
+    if (this.state.options.count === null) {
+      return null;
+    }
+
+    return Math.ceil(this.state.options.count / this.state.options.pageLength);
+  }
+
+  private get unknownPageHeight(): number {
+    const squares = Math.max(
+      Math.floor(this.state.options.rowAspectRatioThreshold),
+      1
+    );
+
+    const rowHeight =
+      (this.state.gridDimensions[0] - (squares - 1) * MARGIN) / squares;
+
+    const numRows = Math.max(
+      1,
+      Math.ceil(this.state.options.pageLength / squares)
+    );
+
+    return (rowHeight + MARGIN) * numRows;
+  }
+
+  addEventListener(
+    eventType: string,
+    handler: EventListenerOrEventListenerObject | null,
+    ...args: any[]
+  ) {
+    this.eventTarget.addEventListener(eventType, handler, ...args);
+  }
+
+  removeEventListener(
+    eventType: string,
+    handler: EventListenerOrEventListenerObject | null,
+    ...args: any[]
+  ) {
+    this.eventTarget.removeEventListener(eventType, handler, ...args);
+  }
+
   reset() {
-    this.ctx++;
-    this.loading = false;
-    const newContainer = document.createElement("div");
-    newContainer.classList.add(flashlight);
-    this.container.replaceWith(newContainer);
-    this.container = newContainer;
-    this.state = this.getEmptyState(this.config);
-    this.showPixels();
-
-    const {
-      width,
-      height,
-    } = this.container.parentElement.getBoundingClientRect();
-    this.state.width = width - 16;
-    this.state.containerHeight = height;
-
-    this.get();
-  }
-
-  isAttached() {
-    return Boolean(this.container.parentElement);
-  }
-  private showPixels() {
-    !this.pixelsSet && this.container.classList.add(flashlightPixels);
-    this.pixelsSet = true;
-  }
-
-  private hidePixels() {
-    this.pixelsSet && this.container.classList.remove(flashlightPixels);
-    this.pixelsSet = false;
+    this.updater(this.getEmptyState(this.state.config, this.state.options));
   }
 
   attach(element: HTMLElement | string): void {
@@ -121,360 +122,81 @@ export default class Flashlight<K> {
       element = document.getElementById(element);
     }
 
-    const { width, height } = element.getBoundingClientRect();
-    this.state.width = width - 16;
-    this.state.containerHeight = height;
-
-    let timeout = null;
-
-    element.addEventListener("scroll", () => {
-      this.render();
-
-      timeout && clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        this.render(true);
-        timeout = null;
-      }, 100);
-    });
-
-    element.appendChild(this.container);
-
-    this.resizeObserver.observe(element);
-    this.get();
-  }
-
-  updateOptions(options: Optional<Options>, force: boolean = false) {
-    const retile = Object.entries(options).some(
-      ([k, v]) => this.state.options[k] != v
-    );
-
-    this.state.options = {
-      ...this.state.options,
-      ...options,
-    };
-
-    if ((retile || force) && this.state.sections.length) {
-      this.state.resized = new Set();
-      const newContainer = document.createElement("div");
-      newContainer.classList.add(flashlight);
-      this.container.replaceWith(newContainer);
-      this.container = newContainer;
-      const items = [
-        ...this.state.sections.map((section) => section.getItems()).flat(),
-        ...this.state.currentRowRemainder.map(({ items }) => items).flat(),
-      ];
-      const activeItemIndex = this.state.sections[this.state.activeSection]
-        .itemIndex;
-      let sections = this.tile(items);
-
-      const lastSection = sections[sections.length - 1];
-      if (
-        sections.length &&
-        Boolean(this.state.currentRequestKey) &&
-        lastSection.length !== NUM_ROWS_PER_SECTION
-      ) {
-        this.state.currentRowRemainder = lastSection;
-        sections = sections.slice(0, -1);
-      } else {
-        this.state.currentRowRemainder = [];
-      }
-
-      this.state.height = 0;
-      this.state.sections = [];
-      this.state.shownSections = new Set();
-      this.state.clean = new Set();
-
-      sections.forEach((rows, index) => {
-        const sectionElement = new SectionElement(
-          index,
-          this.state.itemIndexMap[rows[0].items[0].id],
-          rows,
-          this.state.render,
-          this.getOnItemClick()
-        );
-        sectionElement.set(this.state.height, this.state.width);
-        this.state.sections.push(sectionElement);
-
-        this.state.height += sectionElement.getHeight();
-      });
-      newContainer.style.height = `${this.state.height}px`;
-
-      for (const section of this.state.sections) {
-        if (section.itemIndex >= activeItemIndex) {
-          this.container.parentElement.scrollTo(0, section.getTop());
-          this.render(true);
-          break;
-        }
-      }
-    }
-  }
-
-  updateItems(updater: (id: string) => void) {
-    this.state.clean = new Set();
-    this.state.shownSections.forEach((index) => {
-      const section = this.state.sections[index];
-      section
-        .getItems()
-        .map(({ id }) => id)
-        .forEach((id) => updater(id));
-    });
-    this.state.updater = updater;
-  }
-
-  get(): Promise<void> | null {
-    if (this.loading || this.state.currentRequestKey === null) {
-      return null;
+    if (element === this.flashlight.element.parentElement) {
+      return;
     }
 
-    this.loading = true;
-    let ctx = this.ctx;
-    return this.state
-      .get(this.state.currentRequestKey)
-      .then(({ items, nextRequestKey }) => {
-        if (ctx !== this.ctx) {
-          return;
-        }
+    const { width, height, top, left } = element.getBoundingClientRect();
 
-        this.state.currentRequestKey = nextRequestKey;
+    this.flashlight.element.parentElement &&
+      this.flashlight.element.parentElement.removeChild(
+        this.flashlight.element
+      );
 
-        for (const { id } of items) {
-          this.state.itemIndexMap[id] = this.state.nextItemIndex;
-          this.state.nextItemIndex++;
-        }
+    element.appendChild(this.flashlight.element);
 
-        items = [...this.state.currentRemainder, ...items];
-
-        let sections = this.tile(items, true);
-
-        const lastSection = sections[sections.length - 1];
-        if (
-          Boolean(nextRequestKey) &&
-          lastSection &&
-          lastSection.length !== NUM_ROWS_PER_SECTION
-        ) {
-          this.state.currentRowRemainder = lastSection;
-          sections = sections.slice(0, -1);
-        } else {
-          this.state.currentRowRemainder = [];
-        }
-
-        sections.forEach((rows) => {
-          const sectionElement = new SectionElement(
-            this.state.sections.length,
-            this.state.itemIndexMap[rows[0].items[0].id],
-            rows,
-            this.state.render,
-            this.getOnItemClick()
-          );
-          sectionElement.set(this.state.height, this.state.width);
-          this.state.sections.push(sectionElement);
-
-          this.state.height += sectionElement.getHeight();
-          this.state.clean.add(sectionElement.index);
-        });
-
-        if (sections.length) {
-          this.container.style.height = `${this.state.height}px`;
-        }
-
-        const headSection = this.state.sections[this.state.sections.length - 1];
-
-        this.state.currentRequestKey = nextRequestKey;
-        this.loading = false;
-
-        if (
-          this.state.height <= this.state.containerHeight ||
-          (!sections.length && nextRequestKey) ||
-          (headSection && this.state.shownSections.has(headSection.index))
-        ) {
-          this.requestMore();
-        }
-
-        if (
-          this.state.height >= this.state.containerHeight ||
-          nextRequestKey === null
-        ) {
-          this.hidePixels();
-          this.render();
-        }
-      });
+    this.updater({
+      gridDimensions: [width - SCRUBBER_WIDTH, null],
+      containerBoundingBox: [left, top, width, height],
+      parent: element,
+    });
   }
 
-  private requestMore() {
+  updateOptions(options: Optional<Options>) {
     if (
-      this.state.currentRequestKey &&
-      this.state.lastSection === this.state.sections.length - 1
+      typeof options.count === "number" &&
+      typeof this.state.options.count === "number"
     ) {
-      this.get();
-    }
-  }
-
-  private hideSection(index: number) {
-    const section = this.state.sections[index];
-    if (!section || !section.isShown()) {
-      return;
-    }
-
-    section.hide();
-    this.state.shownSections.delete(section.index);
-  }
-
-  private showSections() {
-    this.state.shownSections.forEach((index) => {
-      const section = this.state.sections[index];
-      if (!section || section.isShown()) {
-        return;
+      if (options.count !== this.state.options.count) {
+        this.reset();
       }
-
-      if (this.state.resized && !this.state.resized.has(section.index)) {
-        this.state.onItemResize &&
-          this.state.onItemResize &&
-          section.resizeItems(this.state.onItemResize);
-        this.state.resized.add(section.index);
+    } else if (typeof options.count === "number") {
+      if (options.count > 0) {
+        this.state.neededPages.add(0);
       }
+    }
 
-      if (!this.state.clean.has(section.index)) {
-        this.state.updater &&
-          section
-            .getItems()
-            .map(({ id }) => id)
-            .forEach((id) => this.state.updater(id));
-        this.state.clean.add(section.index);
-      }
-      section.show(this.container);
-      this.state.shownSections.add(section.index);
-    });
+    this.updater({ options });
   }
 
-  private render(force = false) {
-    if (
-      this.state.sections.length === 0 &&
-      this.state.currentRequestKey === null
-    ) {
-      this.showPixels();
-      return;
-    }
-
-    const top = this.container.parentElement.scrollTop;
-    const time = performance.now();
-
-    const timeDelta = this.lastRender ? time - this.lastRender : 1000;
-    const pixelDelta = Math.abs(top - this.lastScrollTop);
-
-    if (!force && this.lastScrollTop !== null && pixelDelta / timeDelta > 25) {
-      this.showPixels();
-      this.state.zooming = true;
-
-      [...this.state.shownSections].forEach((index) => this.hideSection(index));
-
-      return;
-    }
-    this.lastRender = time;
-    this.lastScrollTop = top;
-    this.hidePixels();
-    this.state.zooming = false;
-
-    const index = argMin(
-      this.state.sections.map((section) => Math.abs(section.getTop() - top))
-    );
-
-    this.state.firstSection = Math.max(index - 2, 0);
-    let revealing = this.state.sections[this.state.firstSection];
-    let revealingIndex = this.state.firstSection;
-
-    do {
-      revealingIndex = revealing.index + 1;
-      revealing = this.state.sections[revealingIndex];
-    } while (
-      revealing &&
-      revealing.getTop() <= top + this.state.containerHeight
-    );
-
-    this.state.lastSection = !revealing ? revealingIndex - 1 : revealingIndex;
-    this.state.sections[this.state.lastSection + 1] && this.state.lastSection++;
-
-    this.state.activeSection = this.state.firstSection;
-    while (this.state.sections[this.state.activeSection].getBottom() < top) {
-      if (this.state.sections[this.state.activeSection + 1]) {
-        this.state.activeSection += 1;
-      } else break;
-    }
-
-    let i = this.state.firstSection;
-    while (i <= this.state.lastSection) {
-      this.state.shownSections.add(i);
-      i++;
-    }
-
-    [...this.state.shownSections].forEach((index) => {
-      if (index < this.state.firstSection || index > this.state.lastSection) {
-        this.hideSection(index);
-      }
-    });
-
-    this.state.zooming
-      ? [...this.state.shownSections].forEach((s) => {
-          this.state.sections[s].hide();
-          this.state.shownSections.delete(s);
-        })
-      : this.showSections();
-    this.requestMore();
-  }
-
-  private tile(items: ItemData[], useRowRemainder = false): RowData[][] {
-    let { rows, remainder } = tile(
-      items,
-      this.state.options.rowAspectRatioThreshold,
-      Boolean(this.state.currentRequestKey)
-    );
-
-    this.state.currentRemainder = remainder;
-
-    if (useRowRemainder) {
-      rows = [...this.state.currentRowRemainder, ...rows];
-    }
-
-    return new Array(Math.ceil(rows.length / NUM_ROWS_PER_SECTION))
-      .fill(0)
-      .map((_) => rows.splice(0, NUM_ROWS_PER_SECTION));
-  }
-
-  private getEmptyState(config: FlashlightConfig<K>): State<K> {
+  private getEmptyState(config: Config, options: Optional<Options>): State {
     return {
-      currentRequestKey: config.initialRequestKey,
-      containerHeight: null,
-      width: null,
-      height: 0,
-      ...config,
-      currentRemainder: [],
-      currentRowRemainder: [],
-      items: [],
-      sections: [],
-      activeSection: 0,
-      firstSection: 0,
-      lastSection: 0,
-      options: {
-        rowAspectRatioThreshold: 5,
-        ...config.options,
-      },
-      clean: new Set(),
-      shownSections: new Set(),
-      onItemClick: config.onItemClick,
-      onItemResize: config.onItemResize,
-      onResize: config.onResize,
-      itemIndexMap: {},
-      nextItemIndex: 0,
-      resized: null,
+      ctx: 0,
+      config,
+      options: { ...DEFAULT_OPTIONS, ...options },
       zooming: false,
+      loading: true,
+      containerBoundingBox: [0, 0, 0, 0],
+      gridDimensions: [0, 0],
+      items: {},
+      clean: new Set(),
+      resized: null,
+      itemIndexMap: {},
+      chunks: [
+        {
+          count: 0,
+          pages: new Set(),
+          sections: [],
+          topRemainder: { items: [], rows: [] },
+          bottomRemainder: { items: [], rows: [] },
+          height: 0,
+        },
+      ],
+      parent: null,
+      top: 0,
+      velocity: 0,
+      direction: DIRECTION.DOWN,
+      index: 0,
+      currentChunk: 0,
+      scrubbing: false,
+      neededPages: new Set(),
+      pages: new Set(),
+      pivot: 0,
+      derived: {
+        height: 0,
+      },
+      lastScroll: null,
+      acceleration: 0,
     };
-  }
-
-  private getOnItemClick(): (event: MouseEvent, id: string) => void | null {
-    if (!this.state.onItemClick) {
-      return null;
-    }
-
-    return (event, id) =>
-      this.state.onItemClick(event, id, { ...this.state.itemIndexMap });
   }
 }

@@ -10,7 +10,7 @@ import {
   TOLERANCE,
 } from "../constants";
 import { BaseState, Coordinates } from "../state";
-import { distanceFromLineSegment } from "../util";
+import { distanceFromLineSegment } from "../utils";
 import { CONTAINS, CoordinateOverlay, PointInfo, RegularLabel } from "./base";
 import { t } from "./util";
 

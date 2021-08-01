@@ -11,7 +11,7 @@ import {
   getFrameString,
   getFullTimeString,
   getTime,
-} from "./util";
+} from "./utils";
 
 import {
   bufferingCircle,

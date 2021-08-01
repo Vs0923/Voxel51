@@ -23,7 +23,6 @@ import {
   VideoLooker,
   zoomAspectRatio,
 } from "@fiftyone/looker";
-import { scrollbarStyles } from "./utils";
 import { activeFields } from "./Filters/utils";
 import { labelFilters } from "./Filters/LabelFieldFilters.state";
 import * as atoms from "../recoil/atoms";
@@ -34,6 +33,7 @@ import { filterView } from "../utils/view";
 import { packageMessage } from "../utils/socket";
 import socket from "../shared/connection";
 import { useMessageHandler } from "../utils/hooks";
+import { hasFilters } from "./Filters/atoms";
 
 export const gridZoom = atom<number | null>({
   key: "gridZoom",
@@ -73,10 +73,7 @@ const Container = styled.div`
   height: 100%;
   display: block;
   position: relative;
-
-  overflow-y: scroll;
-
-  ${scrollbarStyles}
+  overflow: hidden;
 `;
 
 const flashlightOptions = selector<FlashlightOptions>({
@@ -84,6 +81,9 @@ const flashlightOptions = selector<FlashlightOptions>({
   get: ({ get }) => {
     return {
       rowAspectRatioThreshold: get(gridRowAspectRatio),
+      count: get(hasFilters(false))
+        ? get(selectors.filteredCount)
+        : get(selectors.totalCount),
     };
   },
 });
@@ -121,9 +121,7 @@ const argFact = (compareFn) => (array) =>
 
 const argMin = argFact((max, el) => (el[0] < max[0] ? el : max));
 
-const useThumbnailClick = (
-  flashlight: MutableRefObject<Flashlight<number>>
-) => {
+const useThumbnailClick = (flashlight: MutableRefObject<Flashlight>) => {
   return useRecoilCallback(
     ({ set, snapshot }) => async (
       event: MouseEvent,
@@ -297,7 +295,7 @@ export default React.memo(() => {
       ? zoomAspectRatio(sample, aspectRatio)
       : aspectRatio;
   };
-  const flashlight = useRef<Flashlight<number>>();
+  const flashlight = useRef<Flashlight>();
 
   const filters = useRecoilValue(selectors.filterStages);
   const datasetName = useRecoilValue(selectors.datasetName);
@@ -314,7 +312,7 @@ export default React.memo(() => {
   gridZoomRef.current = gridZoomValue;
 
   useLayoutEffect(() => {
-    if (!flashlight.current || !flashlight.current.isAttached()) {
+    if (!flashlight.current || !flashlight.current.attached) {
       return;
     }
 
@@ -332,91 +330,94 @@ export default React.memo(() => {
 
   useLayoutEffect(() => {
     if (!flashlight.current) {
-      flashlight.current = new Flashlight<number>({
-        initialRequestKey: 1,
-        options,
-        onItemClick: onThumbnailClick,
-        onResize: (width) => {
-          let min = 7;
+      flashlight.current = new Flashlight(
+        {
+          onItemClick: onThumbnailClick,
+          onResize: (width) => {
+            let min = 7;
 
-          if (width >= 1200) {
-            min = 0;
-          } else if (width >= 1000) {
-            min = 3;
-          } else if (width >= 800) {
-            min = 6;
-          }
-          const newZoom = Math.max(min, gridZoomRef.current);
-          setGridZoom(newZoom);
-          setGridZoomRange([min, 10]);
-          return {
-            rowAspectRatioThreshold: 11 - newZoom,
-          };
-        },
-        onItemResize: (id, dimensions) => {
-          lookers.has(id) && lookers.get(id).resize(dimensions);
-        },
-        get: async (page) => {
-          const { results, more } = await fetch(
-            `${url}page=${page}`
-          ).then((response) => response.json());
-          const itemData = results.map((result) => {
-            const data: atoms.SampleData = {
-              sample: result.sample,
-              dimensions: [result.width, result.height],
-              frameRate: result.frame_rate,
-              frameNumber: result.sample.frame_number,
-            };
-            samples.set(result.sample._id, data);
-            sampleIndices.set(nextIndex, result.sample._id);
-            nextIndex++;
-
-            return data;
-          });
-
-          const items = itemData.map((data) => {
+            if (width >= 1200) {
+              min = 0;
+            } else if (width >= 1000) {
+              min = 3;
+            } else if (width >= 800) {
+              min = 6;
+            }
+            const newZoom = Math.max(min, gridZoomRef.current);
+            setGridZoom(newZoom);
+            setGridZoomRange([min, 10]);
             return {
-              id: data.sample._id,
-              aspectRatio: aspectRatioGenerator.current(data),
+              rowAspectRatioThreshold: 11 - newZoom,
             };
-          });
+          },
+          onItemResize: (id, dimensions) => {
+            lookers.has(id) && lookers.get(id).resize(dimensions);
+          },
+          get: async (page, pageLength) => {
+            const { results, more } = await fetch(
+              `${url}page=${page}&page_length=${pageLength}`
+            ).then((response) => response.json());
+            const itemData = results.map((result) => {
+              const data: atoms.SampleData = {
+                sample: result.sample,
+                dimensions: [result.width, result.height],
+                frameRate: result.frame_rate,
+                frameNumber: result.sample.frame_number,
+              };
+              samples.set(result.sample._id, data);
+              sampleIndices.set(nextIndex, result.sample._id);
+              nextIndex++;
 
-          return {
-            items,
-            nextRequestKey: more ? page + 1 : null,
-          };
-        },
-        render: (sampleId, element, dimensions) => {
-          const result = samples.get(sampleId);
+              return data;
+            });
 
-          if (lookers.has(sampleId)) {
-            lookers.get(sampleId).attach(element, dimensions);
+            const items = itemData.map((data) => {
+              return {
+                id: data.sample._id,
+                aspectRatio: aspectRatioGenerator.current(data),
+              };
+            });
+
+            return {
+              items,
+              page,
+            };
+          },
+          renderItem: (sampleId, element, dimensions) => {
+            const result = samples.get(sampleId);
+
+            if (lookers.has(sampleId)) {
+              lookers.get(sampleId).attach(element, dimensions);
+              return null;
+            }
+
+            const looker = lookerGeneratorRef.current(result);
+            looker.addEventListener(
+              "selectthumbnail",
+              ({ detail }: { detail: string }) => onSelect(detail)
+            );
+
+            lookers.set(sampleId, looker);
+            looker.attach(element, dimensions);
+
             return null;
-          }
-
-          const looker = lookerGeneratorRef.current(result);
-          looker.addEventListener(
-            "selectthumbnail",
-            ({ detail }: { detail: string }) => onSelect(detail)
-          );
-
-          lookers.set(sampleId, looker);
-          looker.attach(element, dimensions);
-
-          return null;
+          },
         },
-      });
+        options
+      );
       flashlight.current.attach(id);
     } else {
-      flashlight.current.updateOptions(options);
-      flashlight.current.updateItems((sampleId) => {
-        const looker = lookers.get(sampleId);
-        looker &&
-          looker.updateOptions({
-            ...lookerOptions,
-            selected: selected.has(sampleId),
-            inSelectionMode: selected.size > 0,
-          });
+      flashlight.current.updateOptions({
+        ...options,
+        updater: (sampleId) => {
+          const looker = lookers.get(sampleId);
+          looker &&
+            looker.updateOptions({
+              ...lookerOptions,
+              selected: selected.has(sampleId),
+              inSelectionMode: selected.size > 0,
+            });
+        },
       });
     }
   }, [id, options, lookerOptions, selected, gridZoomRef]);
